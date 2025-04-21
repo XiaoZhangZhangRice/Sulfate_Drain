@@ -1,4 +1,4 @@
-# Sulfate_Drain
+# Combination of sulfate and mid-season drain as a scalable methane suppression solution
 Data repository for field study examining the combination of sulfate and drainage for methane suppression in rice.
 
 For more information on experimental design, please click [here](https://hackmd.io/@xiaozhangzhang/H1OTfJI3yg)
@@ -10,8 +10,8 @@ Rice is an important crop in meeting global calorie demand but its production co
 Primary: Evaluate preseason sulfate’s ability to suppress methane emissions in combination with a mid-season drain. Overall, we hypothesize that the sulfate with drain treatment will have the lowest cumulative seasonal methane emission.
 Secondary: Quantify soil biogeochemical changes, specifically changes in sulfate concentrations and soil microbial communities over time.
 # Treatments
-CF – Continuous Flood
-CFS – Continuous Flood, Preplant Sulfate
-MD – Mid-season Drain
-MDS – Mid-season Drain, Pre-season Sulfate
-MDSS - Mid-season Drain, Pre-season & mid-season sulfate
+* CF – Continuous Flood
+* CFS – Continuous Flood, Preplant Sulfate
+* MD – Mid-season Drain
+* MDS – Mid-season Drain, Pre-season Sulfate
+* MDSS - Mid-season Drain, Pre-season & mid-season sulfate
