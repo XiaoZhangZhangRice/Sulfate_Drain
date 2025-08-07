@@ -55,29 +55,33 @@ str(sulfate_all)
 # Allocate plot to treatments
 
 ```{r}
-# Create a lookup table based on the image
-treatment_lookup <- c(
-  # Block 100
-  "101" = "LD-NA", "102" = "LD-MS", "103" = "LD-PP",
-  "105" = "CF-NA", "106" = "CF-PP",
-  
-  # Block 200
-  "201" = "CF-NA", "203" = "LD-MS",
-  "204" = "LD-NA", "205" = "LD-PP", "206" = "CF-PP",
-  
-  # Block 300
-  "301" = "CF-NA", "302" = "CF-PP", 
-  "304" = "LD-PP", "305" = "LD-MS", "306" = "LD-NA"
-)
 
-# Apply the mapping to create a new Treatment column
-sulfate_all$Treatment <- treatment_lookup[as.factor(sulfate_all$Plot)]
+sulfate_all <- sulfate_all %>%
+mutate(Treatment = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF-PP",
+  Plot %in% c("101", "204", "306") ~ "LD",
+  Plot %in% c("103", "205", "304") ~ "LD-PP",
+  Plot %in% c("102", "203", "305") ~ "LD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+))
 
+#change to the right variable classes
 sulfate_all$Plot <- as.factor(sulfate_all$Plot)
 sulfate_all$Treatment <- as.factor(sulfate_all$Treatment)
 
+#check that all variables look good
 str(sulfate_all)
 ```
+
+# Raw scatter plot 
+
+```{r}
+ggplot(sulfate_all, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point(position = "jitter")
+ # geom_line()
+```
+
 
 # Plot some graphs huehue
 
@@ -99,7 +103,6 @@ sulfate_over_time <- ggplot(sulfate_all_graphing, aes(x = Date_Collected, y = Su
 sulfate_over_time
 
 
-ggsave(sulfate_over_time, filename = "../Figures/sulfate_over_time.jpg", height = 25, width = 25, units = "cm", dpi=400)
-
+ggsave(sulfate_over_time, filename = "../Figures/sulfate_over_time.jpg", height = 25, width = 30, units = "cm", dpi=400)
 ```
 
