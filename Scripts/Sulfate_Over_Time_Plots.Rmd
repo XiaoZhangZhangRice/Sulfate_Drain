@@ -1,0 +1,105 @@
+---
+title: "Sulfate over time plots"
+author: 
+- Zhang Zhenglin
+- Caitlin Webster
+output:
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+# Necessary libraries
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(ggplot2)
+theme_set(theme_bw())
+library(emmeans)
+library(multcomp)
+library(PLS205)
+library(lme4)
+library(lmerTest)
+library(multcompView)
+library(car)
+library(Rmisc) 
+library(dplyr) #https://r4ds.had.co.nz/ (Chapter 3, Chapter 5, look at filter and select)
+# https://bookdown.org/ansellbr/WEHI_tidyR_course_book/
+library(stringr) 
+library(data.table)
+library(GGally)
+library(formatR)
+library(readxl)
+library(FluxCalR)
+library(tidyverse)
+library(fuzzyjoin)
+library(purrr)
+library(data.table)
+library(broom)
+library(lubridate)
+library(readxl)
+library(openxlsx)
+library(ggrepel)
+library(gridExtra)
+```
+
+# Load data
+
+```{r}
+sulfate_all <- read_excel("../Data/Sulfate + Drain IC Porewater Sampling Data.xlsx", sheet = 1)
+str(sulfate_all)
+```
+
+# Allocate plot to treatments
+
+```{r}
+# Create a lookup table based on the image
+treatment_lookup <- c(
+  # Block 100
+  "101" = "LD-NA", "102" = "LD-MS", "103" = "LD-PP",
+  "105" = "CF-NA", "106" = "CF-PP",
+  
+  # Block 200
+  "201" = "CF-NA", "203" = "LD-MS",
+  "204" = "LD-NA", "205" = "LD-PP", "206" = "CF-PP",
+  
+  # Block 300
+  "301" = "CF-NA", "302" = "CF-PP", 
+  "304" = "LD-PP", "305" = "LD-MS", "306" = "LD-NA"
+)
+
+# Apply the mapping to create a new Treatment column
+sulfate_all$Treatment <- treatment_lookup[as.factor(sulfate_all$Plot)]
+
+sulfate_all$Plot <- as.factor(sulfate_all$Plot)
+sulfate_all$Treatment <- as.factor(sulfate_all$Treatment)
+
+str(sulfate_all)
+```
+
+# Plot some graphs huehue
+
+```{r}
+
+sulfate_all_graphing <- sulfate_all %>%
+  group_by(Treatment, Date_Collected) %>%
+  mutate(Sulfate_Concentration_ppm_se = sd(Sulfate_Concentration_ppm)/sqrt(3)) %>%
+  summarise(Sulfate_Concentration_ppm = mean(Sulfate_Concentration_ppm),
+  Sulfate_Concentration_ppm_se = mean(Sulfate_Concentration_ppm_se))
+
+
+sulfate_over_time <- ggplot(sulfate_all_graphing, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=Sulfate_Concentration_ppm-Sulfate_Concentration_ppm_se, ymax=Sulfate_Concentration_ppm+Sulfate_Concentration_ppm_se), size=0.5)+
+  ggtitle("Sulfate over time")
+
+sulfate_over_time
+
+
+ggsave(sulfate_over_time, filename = "../Figures/sulfate_over_time.jpg", height = 25, width = 25, units = "cm", dpi=400)
+
+```
+
