@@ -48,7 +48,7 @@ library(gridExtra)
 # Load data
 
 ```{r}
-sulfate_all <- read_excel("../Data/Sulfate + Drain IC Porewater Sampling Data - Tidy (1).xlsx", sheet = 1)
+sulfate_all <- read_excel("../Data/Sulfate + Drain IC Porewater Sampling Data - Tidy (2).xlsx", sheet = 1)
 str(sulfate_all)
 ```
 
