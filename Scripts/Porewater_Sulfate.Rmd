@@ -48,7 +48,7 @@ library(gridExtra)
 # Load data
 
 ```{r}
-sulfate_all <- read_excel("../Data/Sulfate + Drain IC Porewater Sampling Data - Tidy (3).xlsx", sheet = 1)
+sulfate_all <- read_excel("../Data/Sulfate + Drain IC Porewater Sampling Data Seasonal Final.xlsx", sheet = 1)
 str(sulfate_all)
 ```
 
@@ -155,14 +155,21 @@ sulfate_over_time <-
                 y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
                 label = "Drain end"),
             angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
-
+# End of season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-09-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-09-07"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "End of season drain"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
+  
 # Planting date
   geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
              linetype = "dashed", color = "darkgreen") +
   geom_text(aes(x = as.POSIXct("2025-05-10"), 
                 y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
                 label = "Planting"),
-            angle = 90, vjust = -0.5, hjust = 0, color = "darkgreen", size =6)   
+            angle = 90, vjust = 1.4, hjust = 0, color = "darkgreen", size =6)   
   
   
 sulfate_over_time
