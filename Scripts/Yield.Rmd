@@ -1,0 +1,80 @@
+---
+title: "Yield"
+author: "Zhang Zhenglin"
+output:
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+# Necessary libraries
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(ggplot2)
+theme_set(theme_bw())
+library(emmeans)
+library(multcomp)
+library(PLS205)
+library(lme4)
+library(lmerTest)
+library(multcompView)
+library(car)
+library(Rmisc) 
+library(dplyr) #https://r4ds.had.co.nz/ (Chapter 3, Chapter 5, look at filter and select)
+# https://bookdown.org/ansellbr/WEHI_tidyR_course_book/
+library(stringr) 
+library(data.table)
+library(GGally)
+library(formatR)
+library(readxl)
+library(FluxCalR)
+library(tidyverse)
+library(fuzzyjoin)
+library(purrr)
+library(data.table)
+library(broom)
+library(lubridate)
+library(readxl)
+library(openxlsx)
+library(ggrepel)
+```
+
+# Read data
+
+```{r}
+field <- read_excel("../Data/Lyy_RGF_OD_biomass_Data.xlsx", sheet = 1)
+str(field)
+```
+
+# Compute interim yield
+
+
+```{r}
+field$interim_yield_Mg_ha <- (field$OD_Total_Biomass_g*0.51/1000/1000)/((pi*(76.2/2)*(76.2/2))/(10000*10000))*(98.1/86)
+
+yield <- field %>% 
+  select(Plot_RGF, interim_yield_Mg_ha) %>%
+  mutate(Treatment = case_when(
+  Plot_RGF %in% c("105", "201", "301") ~ "CF",
+  Plot_RGF %in% c("106", "206", "302") ~ "CF-PP",
+  Plot_RGF %in% c("101", "204", "306") ~ "LD",
+  Plot_RGF %in% c("103", "205", "304") ~ "LD-PP",
+  Plot_RGF %in% c("102", "203", "305") ~ "LD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  filter(Treatment != "Other") #remove short drain (not a treatment for this study)
+  
+
+model <- lm(interim_yield_Mg_ha~Treatment, data = yield)
+anova(model)
+means <- emmeans(model, spec = "Treatment")
+cld(means)
+
+ggplot(yield,
+       aes(x=Treatment, y=interim_yield_Mg_ha))+
+  geom_boxplot()+
+  geom_point()
+```
