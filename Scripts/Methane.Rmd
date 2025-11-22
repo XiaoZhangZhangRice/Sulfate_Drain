@@ -65,7 +65,9 @@ mutate(Treatment = case_when(
   plot_number %in% c("102", "203", "305") ~ "LD-MS",
   TRUE ~ "Other" # This line handles cases where plot is not listed
 )) %>%
-  filter(Treatment != "Other")
+  filter(Treatment != "Other") #%>%
+  # filter(Treatment != "LD-MS") %>%
+  # filter(Treatment != "CF-PP") 
 
 #change to the right variable classes
 flux$plot_number <- as.factor(flux$plot_number)
@@ -87,6 +89,7 @@ flux %>%
 ```{r}
 flux_2025 <- flux %>%
   filter(date_sampled_AD >= as.POSIXct("2025-05-01") & date_sampled_AD <= as.POSIXct("2025-10-06"))
+
 
 start_date <- as.Date("2025-05-02")
 end_date <- as.Date("2025-07-02")
@@ -120,24 +123,26 @@ flux_2025_rice_seasonal_emissions <- flux_2025_rice_interpolated %>%
 )) %>%
   filter(Treatment != "Other") %>%
   mutate(Drain = case_when(
-  plot_number %in% c("105", "201", "301") ~ "No",
-  plot_number %in% c("106", "206", "302") ~ "No",
-  plot_number %in% c("101", "204", "306") ~ "Yes",
-  plot_number %in% c("103", "205", "304") ~ "Yes",
-  plot_number %in% c("102", "203", "305") ~ "Yes",
+  plot_number %in% c("105", "201", "301") ~ "CF",
+  plot_number %in% c("106", "206", "302") ~ "CF",
+  plot_number %in% c("101", "204", "306") ~ "LD",
+  plot_number %in% c("103", "205", "304") ~ "LD",
+  plot_number %in% c("102", "203", "305") ~ "LD",
   TRUE ~ "Other" # This line handles cases where plot is not listed
 )) %>%
   mutate(Sulfate = case_when(
-  plot_number %in% c("105", "201", "301") ~ "No",
-  plot_number %in% c("106", "206", "302") ~ "Yes",
-  plot_number %in% c("101", "204", "306") ~ "No",
-  plot_number %in% c("103", "205", "304") ~ "Yes",
-  plot_number %in% c("102", "203", "305") ~ "Yes",
+  plot_number %in% c("105", "201", "301") ~ "0",
+  plot_number %in% c("106", "206", "302") ~ "300",
+  plot_number %in% c("101", "204", "306") ~ "0",
+  plot_number %in% c("103", "205", "304") ~ "300",
+  plot_number %in% c("102", "203", "305") ~ "350",
   TRUE ~ "Other" # This line handles cases where plot is not listed
-)) %>%
-   mutate_if(sapply(flux_2025_rice_seasonal_emissions, is.character), as.factor)
+)) 
 
-  
+
+flux_2025_rice_seasonal_emissions$Drain <- as.factor(flux_2025_rice_seasonal_emissions$Drain)
+flux_2025_rice_seasonal_emissions$Sulfate <- as.factor(flux_2025_rice_seasonal_emissions$Sulfate)
+flux_2025_rice_seasonal_emissions$Treatment <- as.factor(flux_2025_rice_seasonal_emissions$Treatment)
 
 ggplot(flux_2025_rice_interpolated, aes(y=CH4_flux_g_ha_day, x=date_sampled_AD, color = plot_number)) + geom_point()
 #ggplot(flux_2025_rice_interpolated, aes(y=N2O_g_ha_day, x=Date, color = Plot)) + geom_point()
@@ -250,4 +255,19 @@ ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Tre
 
 ```
 
+# Anlyses for sulfate:drain interaction - very important 
 
+```{r}
+model <- lm(total_CH4_emissions_kg_ha~Drain*Sulfate, data=flux_2025_rice_seasonal_emissions)
+anova(model)
+
+Treatment_means = emmeans(model,spec = 'Drain', by = "Sulfate")
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+# if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_boxplot()
+
+```
