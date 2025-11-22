@@ -269,7 +269,7 @@ sulfate_over_time_soils <-
             angle = 90, vjust = 1.4, hjust = 0, color = "brown", size =6) 
   
   
-sulfate_over_time_soils_soils
+sulfate_over_time_soils
 
 
 ggsave(sulfate_over_time_soils, filename = "../Figures/sulfate_over_time_soils.jpg", height = 25, width = 30, units = "cm", dpi=400)
