@@ -274,6 +274,67 @@ sulfate_over_time_soils
 
 ggsave(sulfate_over_time_soils, filename = "../Figures/sulfate_over_time_soils.jpg", height = 25, width = 30, units = "cm", dpi=400)
 ```
+# Checking for elevated SO4 after drain - 3 weeks of July 
+
+```{r}
+sulfate_post_drain <- sulfate_all %>%
+  filter(year(Date_Collected) == 2025,
+         month(Date_Collected) == 7)%>%
+  mutate(Treatment = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF-PP",
+  Plot %in% c("101", "204", "306") ~ "LD",
+  Plot %in% c("103", "205", "304") ~ "LD-PP",
+  Plot %in% c("102", "203", "305") ~ "LD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  filter(Treatment != "Other") %>%
+  mutate(Drain = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF",
+  Plot %in% c("101", "204", "306") ~ "LD",
+  Plot %in% c("103", "205", "304") ~ "LD",
+  Plot %in% c("102", "203", "305") ~ "LD",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(Sulfate = case_when(
+  Plot %in% c("105", "201", "301") ~ "0",
+  Plot %in% c("106", "206", "302") ~ "300",
+  Plot %in% c("101", "204", "306") ~ "0",
+  Plot %in% c("103", "205", "304") ~ "300",
+  Plot %in% c("102", "203", "305") ~ "350",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) 
+```
+
+# Basic uninformed stats with treatment only
+
+```{r}
+model <- lm(Sulfate_Concentration_ppm~Treatment*as.factor(Date_Collected), data=sulfate_post_drain)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment', by = 'Date_Collected')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means, alpha = 0.1)
+```
 
 
+# Basic uninformed stats with Sulfate and Drain
+
+```{r}
+model <- lm(Sulfate_Concentration_ppm~Drain*Sulfate, data=sulfate_post_drain)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Drain', by = "Sulfate")
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+# if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
+```
 
