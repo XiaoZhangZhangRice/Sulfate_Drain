@@ -251,7 +251,7 @@ sulfate_over_time_soils <-
   geom_text(aes(x = as.POSIXct("2025-06-17"), 
                 y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
                 label = "Pre Drain soils"),
-            angle = 90, vjust = 1.4, hjust = 0, color = "brown", size =6) +
+            angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =6) +
   # Soil sampling dates
   geom_vline(xintercept = as.POSIXct(c("2025-07-14")), 
              linetype = "dashed", color = "brown") +
