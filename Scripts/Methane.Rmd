@@ -1,5 +1,5 @@
 ---
-title: "Sulfate over time plots"
+title: "CH4 and N2O"
 author: 
 Zhang Zhenglin
 output:
@@ -48,9 +48,39 @@ library(zoo)
 # Load data
 
 ```{r}
-flux <- read_excel("../Data/flux_data_RGF_through_2025_07_01.xlsx", sheet = 1)
+flux <- read_excel("../Data/flux_results_CH4.xlsx", sheet = 1)
 str(flux)
 ```
+# Filter only for 2025 data from river garden farms
+
+```{r}
+flux <- flux %>%
+  separate(
+    Code,
+    into = c("Hijri", "Date", "Location"),
+    sep = "_",
+    remove = FALSE
+  ) %>%
+  mutate(
+    Date = as.Date(Date)
+  )
+
+flux <- flux %>%
+filter(
+    Date > as.Date("2024-12-31"),
+    Location == "river"
+  )
+
+flux <- flux %>%
+  mutate(
+    plot_number = as.numeric(str_extract(Code, "\\d{3}$"))
+  ) %>%
+  mutate(
+    Blk = str_sub(as.character(plot_number), 1, 1)
+  )
+```
+
+
 
 # Allocate plot to treatments
 
@@ -72,6 +102,7 @@ mutate(Treatment = case_when(
 #change to the right variable classes
 flux$plot_number <- as.factor(flux$plot_number)
 flux$Treatment <- as.factor(flux$Treatment)
+flux$Date <- as.POSIXct(flux$Date)
 
 #check that all variables look good
 str(flux)
@@ -81,29 +112,29 @@ str(flux)
 
 ```{r}
 flux %>%
-  summarise(n_dates = n_distinct(date_sampled_AD))
+  summarise(n_dates = n_distinct(Date))
 ```
 
 # Linear Interpolation
 
 ```{r}
 flux_2025 <- flux %>%
-  filter(date_sampled_AD >= as.POSIXct("2025-05-01") & date_sampled_AD <= as.POSIXct("2025-10-06"))
+  filter(Date >= as.POSIXct("2025-05-01") & Date <= as.POSIXct("2025-09-30"))
 
 
 start_date <- as.Date("2025-05-02")
-end_date <- as.Date("2025-07-02")
+end_date <- as.Date("2025-09-11")
 date_seq <- seq.Date(start_date, end_date, by = "day")
 
 flux_2025_rice_interpolated <- flux_2025 %>%
   group_by(plot_number) %>%
-  complete(date_sampled_AD = date_seq) %>%
+  complete(Date = date_seq) %>%
   ungroup()
 
 flux_2025_rice_interpolated <- flux_2025_rice_interpolated %>%
   group_by(plot_number) %>%
-  mutate(CH4_flux_mgm2h = na.approx(CH4_flux_mgm2h, rule = 2)) %>%
-  mutate(CH4_flux_g_ha_day = CH4_flux_mgm2h*240 )%>%
+  mutate(CH4_flux_corrected = na.approx(CH4_flux_corrected, rule = 2)) %>%
+  mutate(CH4_flux_g_ha_day = CH4_flux_corrected*240 )%>%
   ungroup()
 
 flux_2025_rice_seasonal_emissions <- flux_2025_rice_interpolated %>%
@@ -137,61 +168,57 @@ flux_2025_rice_seasonal_emissions <- flux_2025_rice_interpolated %>%
   plot_number %in% c("103", "205", "304") ~ "300",
   plot_number %in% c("102", "203", "305") ~ "350",
   TRUE ~ "Other" # This line handles cases where plot is not listed
-)) 
+)) %>%
+  mutate(Sulfate_logic = case_when(
+  plot_number %in% c("105", "201", "301") ~ "0",
+  plot_number %in% c("106", "206", "302") ~ "Yes",
+  plot_number %in% c("101", "204", "306") ~ "0",
+  plot_number %in% c("103", "205", "304") ~ "Yes",
+  plot_number %in% c("102", "203", "305") ~ "Yes",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(
+    Blk = str_sub(as.character(plot_number), 1, 1)
+  )
 
 
 flux_2025_rice_seasonal_emissions$Drain <- as.factor(flux_2025_rice_seasonal_emissions$Drain)
 flux_2025_rice_seasonal_emissions$Sulfate <- as.factor(flux_2025_rice_seasonal_emissions$Sulfate)
+flux_2025_rice_seasonal_emissions$Sulfate_logic <- as.factor(flux_2025_rice_seasonal_emissions$Sulfate)
+
 flux_2025_rice_seasonal_emissions$Treatment <- as.factor(flux_2025_rice_seasonal_emissions$Treatment)
 
-ggplot(flux_2025_rice_interpolated, aes(y=CH4_flux_g_ha_day, x=date_sampled_AD, color = plot_number)) + geom_point()
+ggplot(flux_2025_rice_interpolated, aes(y=CH4_flux_g_ha_day, x=Date, color = plot_number)) + geom_point()
 #ggplot(flux_2025_rice_interpolated, aes(y=N2O_g_ha_day, x=Date, color = Plot)) + geom_point()
 ```
 
-
-
-# Put dates of agronomic significance into a dataframe
-
-```{r}
-events <- data.frame(
-  event = c("Planting date", "Initial Flood", "Drain start",
-            "Drain reflood", "End-of-season drain", 
-            "Harvest date", "Pre-season sulfate", 
-            "Mid-season sulfate"),
-  date = as.Date(c("2025-05-10", "2025-05-07", "2025-06-21",
-                   "2025-07-01", NA, NA, "2025-05-01", 
-                   "2025-07-01"))
-)
-
-flux_2025
-```
-
-
 # Plot some graphs huehue
+
+## All treatments
 
 ```{r}
 
 methane_all_graphing <- flux_2025 %>%
-  group_by(Treatment, date_sampled_AD) %>%
-  mutate(CH4_flux_mgm2h_se = sd(CH4_flux_mgm2h)/sqrt(3)) %>%
-  summarise(CH4_flux_mgm2h = mean(CH4_flux_mgm2h),
-  CH4_flux_mgm2h_se = mean(CH4_flux_mgm2h_se))
+  group_by(Treatment, Date) %>%
+  mutate(CH4_flux_corrected_se = sd(CH4_flux_corrected)/sqrt(3)) %>%
+  summarise(CH4_flux_corrected = mean(CH4_flux_corrected),
+  CH4_flux_corrected_se = mean(CH4_flux_corrected_se))
 
 methane_over_time <- 
-  ggplot(methane_all_graphing, aes(x = date_sampled_AD, y = CH4_flux_mgm2h,  colour =  Treatment))+
+  ggplot(methane_all_graphing, aes(x = Date, y = CH4_flux_corrected,  colour =  Treatment))+
   geom_point()+
   geom_line()+
-  geom_errorbar(aes(ymin=CH4_flux_mgm2h-CH4_flux_mgm2h_se, ymax=CH4_flux_mgm2h+CH4_flux_mgm2h_se), size=0.5)+
+  geom_errorbar(aes(ymin=CH4_flux_corrected-CH4_flux_corrected_se, ymax=CH4_flux_corrected+CH4_flux_corrected_se), size=0.5)+
   ggtitle("Methane over time")+
   scale_x_datetime(name = "",
-    limits = as.POSIXct(c("2025-05-01", "2025-07-15")), # Set x-axis limits
+    limits = as.POSIXct(c("2025-05-01", "2025-09-11")), # Set x-axis limits
     date_labels = "%b %Y",
     date_breaks = "1 month")+
 # pre season sulfate    
   geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
              linetype = "dashed", color = "red") +
   geom_text(aes(x = as.POSIXct("2025-05-01"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Pre-season sulfate"),
             angle = 90, vjust = -0.5, hjust = 0, color = "red", size =4) +
 
@@ -199,7 +226,7 @@ methane_over_time <-
   geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
              linetype = "dashed", color = "red") +
   geom_text(aes(x = as.POSIXct("2025-07-01"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Mid-season sulfate"),
             angle = 90, vjust = 1.4, hjust = 0, color = "red", size =4)   +
 
@@ -207,7 +234,7 @@ methane_over_time <-
   geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
              linetype = "dashed", color = "blue") +
   geom_text(aes(x = as.POSIXct("2025-05-07"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Initial flood"),
             angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4)    +
   
@@ -215,7 +242,7 @@ methane_over_time <-
   geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
              linetype = "dashed", color = "blue") +
   geom_text(aes(x = as.POSIXct("2025-06-21"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Drain start"),
             angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
   
@@ -223,7 +250,7 @@ methane_over_time <-
   geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
              linetype = "dashed", color = "blue") +
   geom_text(aes(x = as.POSIXct("2025-07-01"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Drain end"),
             angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
 
@@ -231,7 +258,7 @@ methane_over_time <-
   geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
              linetype = "dashed", color = "darkgreen") +
   geom_text(aes(x = as.POSIXct("2025-05-10"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Planting"),
             angle = 90, vjust = -0.5, hjust = 0, color = "darkgreen", size =4)   
   
@@ -245,10 +272,10 @@ ggsave(methane_over_time, filename = "../Figures/methane_over_time.jpg", height 
 
 ```{r}
 methane_over_time_soil_dates <- 
-  ggplot(methane_all_graphing, aes(x = date_sampled_AD, y = CH4_flux_mgm2h,  colour =  Treatment))+
+  ggplot(methane_all_graphing, aes(x = Date, y = CH4_flux_corrected,  colour =  Treatment))+
   geom_point()+
   geom_line()+
-  geom_errorbar(aes(ymin=CH4_flux_mgm2h-CH4_flux_mgm2h_se, ymax=CH4_flux_mgm2h+CH4_flux_mgm2h_se), size=0.5)+
+  geom_errorbar(aes(ymin=CH4_flux_corrected-CH4_flux_corrected_se, ymax=CH4_flux_corrected+CH4_flux_corrected_se), size=0.5)+
   ggtitle("Methane over time")+
   scale_x_datetime(name = "",
     limits = as.POSIXct(c("2025-05-01", "2025-08-30")), # Set x-axis limits
@@ -258,7 +285,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
              linetype = "dashed", color = "red") +
   geom_text(aes(x = as.POSIXct("2025-05-01"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Pre-season sulfate"),
             angle = 90, vjust = -0.5, hjust = 0, color = "red", size =4) +
 
@@ -266,7 +293,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
              linetype = "dashed", color = "red") +
   geom_text(aes(x = as.POSIXct("2025-07-01"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Mid-season sulfate"),
             angle = 90, vjust = 1.4, hjust = 0, color = "red", size =4)   +
 
@@ -274,7 +301,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
              linetype = "dashed", color = "blue") +
   geom_text(aes(x = as.POSIXct("2025-05-07"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Initial flood"),
             angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4)    +
   
@@ -282,7 +309,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
              linetype = "dashed", color = "blue") +
   geom_text(aes(x = as.POSIXct("2025-06-21"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Drain start"),
             angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
   
@@ -290,7 +317,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
              linetype = "dashed", color = "blue") +
   geom_text(aes(x = as.POSIXct("2025-07-01"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Drain end"),
             angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
 
@@ -298,7 +325,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
              linetype = "dashed", color = "darkgreen") +
   geom_text(aes(x = as.POSIXct("2025-05-10"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Planting"),
             angle = 90, vjust = -0.5, hjust = 0, color = "darkgreen", size =4) +
 
@@ -306,7 +333,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-06-17")), 
              linetype = "dashed", color = "brown") +
   geom_text(aes(x = as.POSIXct("2025-06-17"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Pre Drain soils"),
             angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =4)   +
 
@@ -315,7 +342,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-07-14")), 
              linetype = "dashed", color = "brown") +
   geom_text(aes(x = as.POSIXct("2025-07-14"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Post Reflood soils"),
             angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =4) +
  
@@ -323,7 +350,7 @@ methane_over_time_soil_dates <-
   geom_vline(xintercept = as.POSIXct(c("2025-08-19")), 
              linetype = "dashed", color = "brown") +
   geom_text(aes(x = as.POSIXct("2025-08-19"), 
-                y = mean(CH4_flux_mgm2h, na.rm = TRUE) * 1.05,
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
                 label = "Late soils"),
             angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =4) 
   
@@ -332,34 +359,146 @@ methane_over_time_soil_dates
 ggsave(methane_over_time_soil_dates, filename = "../Figures/methane_over_time_soil_dates.jpg", height = 25, width = 30, units = "cm", dpi=400)
 ```
 
+## CF, LD, LD-PP
+
+```{r}
+methane_all_graphing_3 <- methane_all_graphing %>% filter(Treatment !="LD-MS") %>% filter(Treatment !="CF-PP")
+
+methane_over_time_3 <- 
+  ggplot(methane_all_graphing_3, aes(x = Date, y = CH4_flux_corrected,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=CH4_flux_corrected-CH4_flux_corrected_se, ymax=CH4_flux_corrected+CH4_flux_corrected_se), size=0.5)+
+  ggtitle("Methane over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-11")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "red", size =4) +
+
+# mid season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Mid-season sulfate"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "red", size =4)   +
+
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
+
+# Planting date
+  geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
+             linetype = "dashed", color = "darkgreen") +
+  geom_text(aes(x = as.POSIXct("2025-05-10"), 
+                y = mean(CH4_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Planting"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "darkgreen", size =4)   
+  
+  
+methane_over_time_3
+
+
+ggsave(methane_over_time_3, filename = "../Figures/methane_over_time_3trt.jpg", height = 25, width = 30, units = "cm", dpi=400)
+```
+
+
+# Initial stats
 
 
 ```{r}
 model <- lm(total_CH4_emissions_kg_ha~Treatment, data=flux_2025_rice_seasonal_emissions)
 anova(model)
 
+pls205_diagnostics(model)
+
 Treatment_means = emmeans(model,spec = 'Treatment')
-Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+Treatment_effects = contrast(Treatment_means, 
+         method = "pairwise",
+         adjust = "none")
 summary(Treatment_effects)
 cld(Treatment_means)
 
-ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_boxplot()
+emmeans(model, ~ Treatment)
+
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_point()
 
 ```
 
 # Anlyses for sulfate:drain interaction - very important 
 
 ```{r}
-model <- lm(total_CH4_emissions_kg_ha~Drain*Sulfate, data=flux_2025_rice_seasonal_emissions)
+model <- lmer(total_CH4_emissions_kg_ha~Drain*Sulfate+(1|Blk), data=flux_2025_rice_seasonal_emissions)
 anova(model)
 
 Treatment_means = emmeans(model,spec = 'Drain', by = "Sulfate")
-Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
 summary(Treatment_effects)
 cld(Treatment_means)
+
+emmeans(model, ~ Drain + Sulfate)
+cld_siddak <- cld(emmeans(model, ~ Drain + Sulfate),adjust = "Sidak")
 
 # if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
 
 ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_boxplot()
 
 ```
+# Try without CF-PP
+
+```{r}
+model <- lm(total_CH4_emissions_kg_ha~Treatment, data=flux_2025_rice_seasonal_emissions%>%filter(Treatment != "CF-PP")%>%filter(Treatment !="LD-MS"))
+
+pls205_diagnostics(model)
+            
+anova(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "none")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+
+```
+# Over time
+
+```{r}
+model <- lm(CH4_flux_corrected~Treatment*as.factor(Date), data=flux_2025)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment', by = 'Date')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+```
+
