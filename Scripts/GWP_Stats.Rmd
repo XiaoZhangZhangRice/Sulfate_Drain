@@ -1,0 +1,111 @@
+---
+title: "GWP"
+author: 
+Zhang Zhenglin
+output:
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+# Necessary libraries
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(ggplot2)
+theme_set(theme_bw())
+library(emmeans)
+library(multcomp)
+library(PLS205)
+library(lme4)
+library(lmerTest)
+library(multcompView)
+library(car)
+library(Rmisc) 
+library(dplyr) #https://r4ds.had.co.nz/ (Chapter 3, Chapter 5, look at filter and select)
+# https://bookdown.org/ansellbr/WEHI_tidyR_course_book/
+library(stringr) 
+library(data.table)
+library(GGally)
+library(formatR)
+library(readxl)
+library(FluxCalR)
+library(tidyverse)
+library(fuzzyjoin)
+library(purrr)
+library(data.table)
+library(broom)
+library(lubridate)
+library(readxl)
+library(openxlsx)
+library(ggrepel)
+library(gridExtra)
+library(zoo)
+library(writexl)
+
+```
+
+# Load data
+
+```{r}
+CH4 <- read_excel("../Data/seasonal_total_CH4.xlsx", sheet = 1)
+N2O <- read_excel("../Data/seasonal_total_N2O.xlsx", sheet = 1)
+
+
+Combined <- N2O %>%
+  left_join(
+    CH4 %>%
+      select(plot_number, total_CH4_emissions_kg_ha),
+    by = "plot_number"
+  )
+
+Combined$GWP <- Combined$total_CH4_emissions_kg_ha*34+ Combined$total_N2O_emissions_kg_ha*298
+
+```
+
+# Initial stats
+
+## GWP
+
+```{r}
+model <- lm(GWP~Treatment, data=Combined%>%filter(Treatment !="LD-MS")%>%filter(Treatment !="CF-PP"))
+
+pls205_diagnostics(model)
+            
+anova(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+```
+## N2O
+
+```{r}
+model <- lm(total_N2O_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS")%>%filter(Treatment !="CF-PP"))
+
+pls205_diagnostics(model)
+            
+anova(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+```
+## N2O
+
+```{r}
+model <- lm(total_CH4_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS")%>%filter(Treatment !="CF-PP"))
+
+pls205_diagnostics(model)
+            
+anova(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+```

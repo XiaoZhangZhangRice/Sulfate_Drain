@@ -274,6 +274,81 @@ sulfate_over_time_soils
 
 ggsave(sulfate_over_time_soils, filename = "../Figures/sulfate_over_time_soils.jpg", height = 25, width = 30, units = "cm", dpi=400)
 ```
+
+# 3 treatment dataset
+
+```{r}
+sulfate_all_graphing_3trt <- sulfate_all_graphing %>% filter(Treatment != "LD-MS") %>% filter(Treatment !="CF-PP")
+
+
+sulfate_over_time_3trt <- 
+  ggplot(sulfate_all_graphing_3trt, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=Sulfate_Concentration_ppm-Sulfate_Concentration_ppm_se, ymax=Sulfate_Concentration_ppm+Sulfate_Concentration_ppm_se), size=0.5)+
+  ggtitle("Sulfate over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-15")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+  scale_color_manual(values = c("CF" = "#0072B2", "LD" = "#E69F00", "LD-PP" = "#7B6BAF"),
+                     labels = c(expression("Continuous Flood (CF)"), 
+                                expression("Drain"),
+                                expression("Drain and Sulfate")
+                                )
+                     )+
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(size=20,angle=50, hjust=1.2, vjust=1.2))+
+  labs(y = expression("Porewater sulfate concentration (mg L"^-1~")")) +
+  theme_classic()+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# End of season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-09-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-09-07"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "End of season drain"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) 
+  
+  
+sulfate_over_time_3trt
+
+
+ggsave(sulfate_over_time_3trt, filename = "../Figures/sulfate_over_time_3trt.jpg", height = 25, width = 30, units = "cm", dpi=400)
+
+```
+
+
+
 # Checking for elevated SO4 after drain - 3 weeks of July 
 
 ```{r}
@@ -337,4 +412,5 @@ cld(Treatment_means)
 
 # if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
 ```
+
 
