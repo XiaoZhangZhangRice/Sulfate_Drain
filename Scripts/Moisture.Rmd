@@ -1,0 +1,590 @@
+---
+title: "Sulfate over time plots"
+author: 
+- Zhang Zhenglin
+output:
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+# Necessary libraries
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(ggplot2)
+theme_set(theme_bw())
+library(emmeans)
+library(multcomp)
+library(PLS205)
+library(lme4)
+library(lmerTest)
+library(multcompView)
+library(car)
+library(Rmisc) 
+library(dplyr) #https://r4ds.had.co.nz/ (Chapter 3, Chapter 5, look at filter and select)
+# https://bookdown.org/ansellbr/WEHI_tidyR_course_book/
+library(stringr) 
+library(data.table)
+library(GGally)
+library(formatR)
+library(readxl)
+library(FluxCalR)
+library(tidyverse)
+library(fuzzyjoin)
+library(purrr)
+library(data.table)
+library(broom)
+library(lubridate)
+library(readxl)
+library(openxlsx)
+library(ggrepel)
+library(gridExtra)
+```
+
+# Load data
+
+```{r}
+Datalogger_1 <- read_excel("../Data/z6-22118 07May26-1055_Blk1.xlsx", sheet = 1, skip = 2)
+Datalogger_2 <- read_excel("../Data/z6-24135 07May26-1104_Blk3.xlsx", sheet = 1, skip = 2)
+
+Datalogger_1$Moisture_1 <- Datalogger_1$`m³/m³ Water Content...2`
+Datalogger_1$Moisture_2 <- Datalogger_1$`m³/m³ Water Content...4`
+
+Datalogger_2$Moisture_3 <- Datalogger_2$`m³/m³ Water Content...2`
+Datalogger_2$Moisture_4 <- Datalogger_2$`m³/m³ Water Content...5`
+
+moisture <- full_join(
+  select(Datalogger_1, Timestamp, Moisture_1, Moisture_2),
+  select(Datalogger_2, Timestamp, Moisture_3, Moisture_4),
+  by = "Timestamp"
+)
+
+moisture <- moisture %>%
+  filter(Timestamp >= as.POSIXct("2025-06-20") &
+         Timestamp <  as.POSIXct("2025-07-03"))
+
+head(Datalogger_1)
+head(Datalogger_2)
+str(Datalogger_1)
+
+
+ggplot()
+```
+
+```{r}
+
+# Convert to long format
+moisture_long <- moisture %>%
+  pivot_longer(
+    cols = starts_with("Moisture"),
+    names_to = "Sensor",
+    values_to = "Moisture"
+  )
+
+# Calculate mean and standard error
+Moisture_graph <-
+  moisture_summary <- moisture_long %>%
+  group_by(Timestamp) %>%
+  summarise(
+    mean_moisture = mean(Moisture, na.rm = TRUE),
+    se_moisture = sd(Moisture, na.rm = TRUE) / sqrt(4)
+  )
+
+# Plot
+
+Moisture_graph <-
+ggplot(moisture_summary,
+       aes(x = Timestamp, y = mean_moisture)) +
+
+  geom_line() +
+  geom_point() +
+
+  # vertical lines
+  geom_vline(
+    xintercept = as.POSIXct(c(
+      "2025-06-21 12:00:00",
+      "2025-07-01 20:45:00"
+    ),linetype = "dashed"
+  ) )+
+
+  # show every date on x-axis
+  scale_x_datetime(
+    date_breaks = "1 day",
+    #date_labels = "%b %d"
+  ) +
+
+  labs(
+    title = "Mean Soil Moisture Over Time",
+    x = "Date",
+    y = "Soil Moisture (m3/m3)"
+  ) +
+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+Moisture_graph
+
+ggsave(Moisture_graph, filename = "../Figures/Moisture_graph.jpg", height = 25, width = 30, units = "cm", dpi=400)
+
+```
+
+
+# Allocate plot to treatments
+
+```{r}
+
+sulfate_all <- sulfate_all %>%
+mutate(Treatment = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF-PP",
+  Plot %in% c("101", "204", "306") ~ "LD",
+  Plot %in% c("103", "205", "304") ~ "LD-PP",
+  Plot %in% c("102", "203", "305") ~ "LD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+))
+
+#change to the right variable classes
+sulfate_all$Plot <- as.factor(sulfate_all$Plot)
+sulfate_all$Treatment <- as.factor(sulfate_all$Treatment)
+
+#check that all variables look good
+str(sulfate_all)
+```
+
+# Raw scatter plot 
+
+```{r}
+ggplot(sulfate_all, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point(position = "jitter")
+ # geom_line()
+```
+# Put dates of agronomic significance into a dataframe
+
+```{r}
+events <- data.frame(
+  event = c("Planting date", "Initial Flood", "Drain start",
+            "Drain reflood", "End-of-season drain", 
+            "Harvest date", "Pre-season sulfate", 
+            "Mid-season sulfate"),
+  date = as.Date(c("2025-05-10", "2025-05-07", "2025-06-21",
+                   "2025-07-01", NA, NA, "2025-05-01", 
+                   "2025-07-01"))
+)
+```
+
+
+# Plot some graphs huehue
+
+```{r}
+
+sulfate_all_graphing <- sulfate_all %>%
+  group_by(Treatment, Date_Collected) %>%
+  mutate(Sulfate_Concentration_ppm_se = sd(Sulfate_Concentration_ppm)/sqrt(3)) %>%
+  summarise(Sulfate_Concentration_ppm = mean(Sulfate_Concentration_ppm),
+  Sulfate_Concentration_ppm_se = mean(Sulfate_Concentration_ppm_se))
+
+sulfate_over_time <- 
+  ggplot(sulfate_all_graphing, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=Sulfate_Concentration_ppm-Sulfate_Concentration_ppm_se, ymax=Sulfate_Concentration_ppm+Sulfate_Concentration_ppm_se), size=0.5)+
+  ggtitle("Sulfate over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-15")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "red", size =6) +
+
+# mid season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Mid-season sulfate"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "red", size =6)   +
+
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
+# End of season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-09-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-09-07"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "End of season drain"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
+  
+# Planting date
+  geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
+             linetype = "dashed", color = "darkgreen") +
+  geom_text(aes(x = as.POSIXct("2025-05-10"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Planting"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "darkgreen", size =6)   
+  
+  
+sulfate_over_time
+
+
+ggsave(sulfate_over_time, filename = "../Figures/sulfate_over_time.jpg", height = 25, width = 30, units = "cm", dpi=400)
+```
+## Graph with soil sampling dates
+
+```{r}
+sulfate_over_time_soils <- 
+  ggplot(sulfate_all_graphing, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=Sulfate_Concentration_ppm-Sulfate_Concentration_ppm_se, ymax=Sulfate_Concentration_ppm+Sulfate_Concentration_ppm_se), size=0.5)+
+  ggtitle("Sulfate over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-15")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "red", size =6) +
+
+# mid season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Mid-season sulfate"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "red", size =6)   +
+
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
+# End of season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-09-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-09-07"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "End of season drain"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =6) +
+  
+# Planting date
+  geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
+             linetype = "dashed", color = "darkgreen") +
+  geom_text(aes(x = as.POSIXct("2025-05-10"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Planting"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "darkgreen", size =6)   +
+
+# Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-06-17")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-06-17"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Pre Drain soils"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =6) +
+  # Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-07-14")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-07-14"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Post Reflood soils"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "brown", size =6) +
+  
+  # Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-08-19")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-08-19"), 
+                y = max(Sulfate_Concentration_ppm, na.rm = TRUE) * 1.05,
+                label = "Late soils"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "brown", size =6) 
+  
+  
+sulfate_over_time_soils
+
+
+ggsave(sulfate_over_time_soils, filename = "../Figures/sulfate_over_time_soils.jpg", height = 25, width = 30, units = "cm", dpi=400)
+```
+
+## 3 treatment dataset
+
+```{r}
+sulfate_all_graphing_3trt <- sulfate_all_graphing %>% filter(Treatment != "LD-MS") %>% filter(Treatment !="CF-PP")
+
+
+sulfate_over_time_3trt <- 
+  ggplot(sulfate_all_graphing_3trt, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=Sulfate_Concentration_ppm-Sulfate_Concentration_ppm_se, ymax=Sulfate_Concentration_ppm+Sulfate_Concentration_ppm_se), size=0.5)+
+  ggtitle("Sulfate over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-15")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+  scale_color_manual(values = c("CF" = "#0072B2", "LD" = "#E69F00", "LD-PP" = "#7B6BAF"),
+                     labels = c(expression("Continuous Flood (CF)"), 
+                                expression("Drain"),
+                                expression("Drain and Sulfate")
+                                )
+                     )+
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(size=20,angle=50, hjust=1.2, vjust=1.2))+
+  labs(y = expression("Porewater sulfate concentration (mg L"^-1~")")) +
+  theme_classic()+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# End of season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-09-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-09-07"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "End of season drain"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) 
+  
+  
+sulfate_over_time_3trt
+
+
+ggsave(sulfate_over_time_3trt, filename = "../Figures/sulfate_over_time_3trt.jpg", height = 25, width = 30, units = "cm", dpi=400)
+
+```
+## 3 treatment dataset with soil sampling dates
+
+```{r}
+
+sulfate_over_time_3trt_soils <- 
+  ggplot(sulfate_all_graphing_3trt, aes(x = Date_Collected, y = Sulfate_Concentration_ppm,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=Sulfate_Concentration_ppm-Sulfate_Concentration_ppm_se, ymax=Sulfate_Concentration_ppm+Sulfate_Concentration_ppm_se), size=0.5)+
+  ggtitle("Sulfate over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-15")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+  scale_color_manual(values = c("CF" = "#0072B2", "LD" = "#E69F00", "LD-PP" = "#7B6BAF"),
+                     labels = c(expression("Continuous Flood (CF)"), 
+                                expression("Drain"),
+                                expression("Drain and Sulfate")
+                                )
+                     )+
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(size=20,angle=50, hjust=1.2, vjust=1.2))+
+  labs(y = expression("Porewater sulfate concentration (mg L"^-1~")")) +
+  theme_classic()+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# End of season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-09-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-09-07"), 
+                y = mean(Sulfate_Concentration_ppm +100, na.rm = TRUE) ,
+                label = "End of season drain"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+  # Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-06-17")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-06-17"), 
+                y = mean(Sulfate_Concentration_ppm+100, na.rm = TRUE) ,
+                label = "Pre Drain soils"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =5) +
+  # Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-07-14")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-07-14"), 
+                y = mean(Sulfate_Concentration_ppm+100, na.rm = TRUE) ,
+                label = "Post Reflood soils"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "brown", size =5) +
+  
+  # Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-08-19")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-08-19"), 
+                y = mean(Sulfate_Concentration_ppm+100, na.rm = TRUE) ,
+                label = "Late soils"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "brown", size =5) 
+  
+  
+  
+sulfate_over_time_3trt_soils
+
+
+ggsave(sulfate_over_time_3trt_soils, filename = "../Figures/sulfate_over_time_soils_3trt.jpg", height = 25, width = 30, units = "cm", dpi=400)
+
+```
+
+
+
+
+# Checking for elevated SO4 after drain - 3 weeks of July 
+
+```{r}
+sulfate_post_drain <- sulfate_all %>%
+  filter(year(Date_Collected) == 2025,
+         month(Date_Collected) == 7)%>%
+  mutate(Treatment = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF-PP",
+  Plot %in% c("101", "204", "306") ~ "LD",
+  Plot %in% c("103", "205", "304") ~ "LD-PP",
+  Plot %in% c("102", "203", "305") ~ "LD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  filter(Treatment != "Other") %>%
+  mutate(Drain = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF",
+  Plot %in% c("101", "204", "306") ~ "LD",
+  Plot %in% c("103", "205", "304") ~ "LD",
+  Plot %in% c("102", "203", "305") ~ "LD",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(Sulfate = case_when(
+  Plot %in% c("105", "201", "301") ~ "0",
+  Plot %in% c("106", "206", "302") ~ "300",
+  Plot %in% c("101", "204", "306") ~ "0",
+  Plot %in% c("103", "205", "304") ~ "300",
+  Plot %in% c("102", "203", "305") ~ "350",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) 
+```
+
+# Basic uninformed stats with treatment only
+
+```{r}
+model <- lm(Sulfate_Concentration_ppm~Treatment*as.factor(Date_Collected), data=sulfate_post_drain)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment', by = 'Date_Collected')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means, alpha = 0.1)
+```
+
+
+# Basic uninformed stats with Sulfate and Drain
+
+```{r}
+model <- lm(Sulfate_Concentration_ppm~Drain*Sulfate, data=sulfate_post_drain)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Drain', by = "Sulfate")
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+# if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
+```
+
+
