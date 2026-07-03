@@ -1,0 +1,204 @@
+---
+title: "Redox"
+author: 
+Zhang Zhenglin
+output:
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+# Necessary libraries
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(ggplot2)
+theme_set(theme_bw())
+library(emmeans)
+library(multcomp)
+library(PLS205)
+library(lme4)
+library(lmerTest)
+library(multcompView)
+library(car)
+library(Rmisc) 
+library(dplyr) #https://r4ds.had.co.nz/ (Chapter 3, Chapter 5, look at filter and select)
+# https://bookdown.org/ansellbr/WEHI_tidyR_course_book/
+library(stringr) 
+library(data.table)
+library(GGally)
+library(formatR)
+library(readxl)
+library(FluxCalR)
+library(tidyverse)
+library(fuzzyjoin)
+library(purrr)
+library(data.table)
+library(broom)
+library(lubridate)
+library(readxl)
+library(openxlsx)
+library(ggrepel)
+library(gridExtra)
+library(zoo)
+library(writexl)
+
+```
+
+# Load data
+
+```{r}
+redox <- read_excel("../Data/redox_data.xlsx", sheet = 1)
+
+# Filter data
+# Remove 2024 data - from another study
+# Remove 2025 data from site = Monta - another study
+# Remove treatment = "SD" - another study
+redox <- redox %>% filter(year == 2025) %>% filter(site == "river_garden") %>% filter(treatment != "SD")
+
+```
+
+# Allocate plot to treatments
+
+```{r}
+redox <- redox %>%
+mutate(Treatment = case_when(
+  plot_number %in% c("105", "201", "301") ~ "CF",
+  plot_number %in% c("106", "206", "302") ~ "CF-S",
+  plot_number %in% c("101", "204", "306") ~ "MD",
+  plot_number %in% c("103", "205", "304") ~ "MD-S",
+  plot_number %in% c("102", "203", "305") ~ "MD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  filter(Treatment != "Other") #%>%
+  # filter(Treatment != "LD-MS") %>%
+  # filter(Treatment != "CF-PP") 
+
+#change to the right variable classes
+redox$plot_number <- as.factor(redox$plot_number)
+redox$Treatment <- as.factor(redox$Treatment)
+#change copy date for easier coding
+redox$Date <- redox$date_sampled_AD
+redox$Date <- as.POSIXct(redox$Date)
+
+#check that all variables look good
+str(redox)
+```
+
+# Number of sampling events
+
+```{r}
+redox %>%
+  summarise(n_dates = n_distinct(Date))
+```
+
+# Plot graphs
+
+## Create dataframe
+
+```{r}
+redox_all_graphing <- redox %>%
+  group_by(Treatment, Date) %>%
+  mutate(reading_1_mV_se = sd(reading_1_mV)/sqrt(3)) %>%
+  summarise(reading_1_mV = mean(reading_1_mV),
+  reading_1_mV_se = mean(reading_1_mV_se))
+```
+
+## Create time series curve
+
+```{r}
+redox_all_graphing_4 <- redox_all_graphing %>% filter(Treatment !="MD-MS")
+
+redox_over_time_4 <- 
+  ggplot(redox_all_graphing_4, aes(x = Date, y = reading_1_mV,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=reading_1_mV-reading_1_mV_se, ymax=reading_1_mV+reading_1_mV_se), size=0.5)+
+  ggtitle("(d) Redox potential")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-11")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+  scale_color_manual(
+  values = c(
+    "CF"   = "#3D6F73",
+    "CF-S" = "#86B7B8",
+    "MD"   = "#A16E2A",
+    "MD-S" = "#D9B67A"
+  ),
+                     labels = c(expression("Continuous flood (CF)"), 
+                                expression("Continuous flood and sulfate (CF-S)"),
+                                expression("Mid-season drain (MD)"),
+                                expression("Mid-season drain and sulfate (MD-S)")
+                                )
+                     )+
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(size=20,angle=50, hjust=1.2, vjust=1.2))+
+  labs(y = expression("Redox potential (mV)")) +
+  theme_classic()+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = mean(reading_1_mV, na.rm = TRUE) -400,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = mean(reading_1_mV, na.rm = TRUE) -400,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = mean(reading_1_mV, na.rm = TRUE) -400,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(reading_1_mV, na.rm = TRUE) -400,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
+# End of season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-09-07")), 
+             linetype = "dashed", color = "#5F8A8B") +
+  geom_text(aes(x = as.POSIXct("2025-09-07"), 
+                y = mean(reading_1_mV, na.rm = TRUE) -400,
+                label = "End of season drain"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) 
+  
+  
+redox_over_time_4
+
+
+ggsave(redox_over_time_4, filename = "../Figures/redox_over_time_4trt.jpg", height = 25, width = 30, units = "cm", dpi=400)
+```
+
+```{r}
+scale_color_manual(
+  values = c(
+    "CF"   = "#2F6165",  # darker teal
+    "CF-S" = "#6FA3A5",  # medium teal
+    "MD"   = "#8C5F20",  # darker golden brown
+    "MD-S" = "#C89C5C"   # medium gold
+  )
+  
+  scale_color_manual(
+  values = c(
+    "CF"   = "#3D6F73",
+    "CF-S" = "#86B7B8",
+    "MD"   = "#A16E2A",
+    "MD-S" = "#D9B67A"
+  )
+)
+```
+

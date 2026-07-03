@@ -70,7 +70,7 @@ Combined$GWP <- Combined$total_CH4_emissions_kg_ha*34+ Combined$total_N2O_emissi
 ## GWP
 
 ```{r}
-model <- lm(GWP~Treatment, data=Combined%>%filter(Treatment !="LD-MS")%>%filter(Treatment !="CF-PP"))
+model <- lm(GWP~Treatment, data=Combined%>%filter(Treatment !="LD-MS"))
 
 pls205_diagnostics(model)
             
@@ -84,7 +84,7 @@ cld(Treatment_means)
 ## N2O
 
 ```{r}
-model <- lm(total_N2O_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS")%>%filter(Treatment !="CF-PP"))
+model <- lm(total_N2O_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS"))
 
 pls205_diagnostics(model)
             
@@ -95,10 +95,10 @@ Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tuk
 summary(Treatment_effects)
 cld(Treatment_means)
 ```
-## N2O
+## CH4
 
 ```{r}
-model <- lm(total_CH4_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS")%>%filter(Treatment !="CF-PP"))
+model <- lm(total_CH4_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS"))
 
 pls205_diagnostics(model)
             

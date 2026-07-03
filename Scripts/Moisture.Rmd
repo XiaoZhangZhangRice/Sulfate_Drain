@@ -117,9 +117,9 @@ ggplot(moisture_summary,
   ) +
 
   labs(
-    title = "Mean Soil Moisture Over Time",
+    title = "Soil water content during mid-season drain",
     x = "Date",
-    y = "Soil Moisture (m3/m3)"
+    y = expression("Volumetric water content (m"^3~" m"^-3~")")
   ) +
 
   theme(
