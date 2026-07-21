@@ -62,7 +62,7 @@ Combined <- N2O %>%
   )
 
 Combined$GWP <- Combined$total_CH4_emissions_kg_ha*34+ Combined$total_N2O_emissions_kg_ha*298
-
+Combined <- Combined%>%filter(Treatment !="LD-MS")
 ```
 
 # Initial stats
@@ -70,13 +70,43 @@ Combined$GWP <- Combined$total_CH4_emissions_kg_ha*34+ Combined$total_N2O_emissi
 ## GWP
 
 ```{r}
-model <- lm(GWP~Treatment, data=Combined%>%filter(Treatment !="LD-MS"))
+#no log transformation
+model <- lm(GWP~Drain*Sulfate, data=Combined)
+pls205_diagnostics(model)
+anova(model)
+
+Treatment_means <- emmeans(model, ~ Drain * Sulfate)
+
+cld(Treatment_means,
+    adjust = "tukey",
+    Letters = letters)
+
+#Treatment_means = emmeans(model, spec = 'Sulfate', by ='Drain')
+#Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+#summary(Treatment_effects)
+#cld(Treatment_means)
+
+# lmer
+
+model <- lmer(GWP~Drain*Sulfate+(1|Blk), data=Combined)
+pls205_diagnostics(model)
+anova(model)
+
+Treatment_means = emmeans(model, spec = 'Sulfate', by ='Drain')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+#log transformation
+
+
+model <- lm(log(GWP)~Drain*Sulfate, data=Combined)
 
 pls205_diagnostics(model)
             
 anova(model)
 
-Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_means = emmeans(model, spec = 'Sulfate', by ='Drain')
 Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
 summary(Treatment_effects)
 cld(Treatment_means)
@@ -98,6 +128,46 @@ cld(Treatment_means)
 ## CH4
 
 ```{r}
+
+#no log transformation
+model <- lm(total_CH4_emissions_kg_ha~Drain*Sulfate, data=Combined) #include blk and plot number as random effects
+pls205_diagnostics(model)
+anova(model)
+
+Treatment_means <- emmeans(model, ~ Drain * Sulfate)
+
+cld(Treatment_means,
+    adjust = "sidak",
+    Letters = letters)
+
+
+# log transformation
+model <- lm(log(total_CH4_emissions_kg_ha)~Drain*Sulfate, data=Combined)
+pls205_diagnostics(model)
+anova(model)
+
+Treatment_means <- emmeans(model, ~ Drain * Sulfate)
+
+cld(Treatment_means,
+    adjust = "sidak",
+    Letters = letters)
+
+#log + lmer
+
+model <- lmer(log(total_CH4_emissions_kg_ha)~Drain*Sulfate+(1|Blk), data=Combined)
+pls205_diagnostics(model)
+anova(model)
+
+Treatment_means <- emmeans(model, ~ Drain * Sulfate)
+
+cld(Treatment_means,
+    adjust = "sidak",
+    Letters = letters)
+
+
+
+
+
 model <- lm(total_CH4_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS"))
 
 pls205_diagnostics(model)

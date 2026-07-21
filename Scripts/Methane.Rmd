@@ -44,7 +44,6 @@ library(ggrepel)
 library(gridExtra)
 library(zoo)
 library(writexl)
-
 ```
 
 # Load data
@@ -125,7 +124,43 @@ flux %>%
 
 ```{r}
 flux_2025 <- flux %>%
-  filter(Date >= as.POSIXct("2025-05-01") & Date <= as.POSIXct("2025-09-30"))
+  filter(Date >= as.POSIXct("2025-05-01") & Date <= as.POSIXct("2025-09-30")) %>%
+  mutate(Treatment = case_when(
+  plot_number %in% c("105", "201", "301") ~ "CF",
+  plot_number %in% c("106", "206", "302") ~ "CF-PP",
+  plot_number %in% c("101", "204", "306") ~ "LD",
+  plot_number %in% c("103", "205", "304") ~ "LD-PP",
+  plot_number %in% c("102", "203", "305") ~ "LD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  filter(Treatment != "Other") %>%
+  mutate(Drain = case_when(
+  plot_number %in% c("105", "201", "301") ~ "CF",
+  plot_number %in% c("106", "206", "302") ~ "CF",
+  plot_number %in% c("101", "204", "306") ~ "LD",
+  plot_number %in% c("103", "205", "304") ~ "LD",
+  plot_number %in% c("102", "203", "305") ~ "LD",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(Sulfate = case_when(
+  plot_number %in% c("105", "201", "301") ~ "0",
+  plot_number %in% c("106", "206", "302") ~ "300",
+  plot_number %in% c("101", "204", "306") ~ "0",
+  plot_number %in% c("103", "205", "304") ~ "300",
+  plot_number %in% c("102", "203", "305") ~ "350",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(Sulfate_logic = case_when(
+  plot_number %in% c("105", "201", "301") ~ "0",
+  plot_number %in% c("106", "206", "302") ~ "Yes",
+  plot_number %in% c("101", "204", "306") ~ "0",
+  plot_number %in% c("103", "205", "304") ~ "Yes",
+  plot_number %in% c("102", "203", "305") ~ "Yes",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(
+    Blk = str_sub(as.character(plot_number), 1, 1)
+  )
 
 
 start_date <- as.Date("2025-05-02")
@@ -201,6 +236,29 @@ write_xlsx(flux_2025_rice_seasonal_emissions, "../Data/seasonal_total_CH4.xlsx")
 
 
 ```
+
+# ANOVA for CH4
+
+```{r}
+
+flux_2025 <- flux_2025 %>%  filter(Treatment !="LD-MS") 
+
+model <- lmer(CH4_flux_corrected~Drain*Sulfate+(1|plot_number:Blk)+(1|Blk)+(1|Date), data=flux_2025) 
+#specify co-variant structure 
+#impose nested structure into the model
+pls205_diagnostics(model)
+anova(model)
+
+Treatment_means <- emmeans(model, ~ Drain * Sulfate)
+
+cld(Treatment_means,
+    adjust = "tukey",
+    Letters = letters)
+
+
+```
+
+
 
 # Plot some graphs huehue
 

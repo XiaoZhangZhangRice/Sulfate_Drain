@@ -57,14 +57,43 @@ str(sulfate_all)
 ```{r}
 
 sulfate_all <- sulfate_all %>%
-mutate(Treatment = case_when(
+  mutate(Treatment = case_when(
   Plot %in% c("105", "201", "301") ~ "CF",
   Plot %in% c("106", "206", "302") ~ "CF-PP",
   Plot %in% c("101", "204", "306") ~ "LD",
   Plot %in% c("103", "205", "304") ~ "LD-PP",
   Plot %in% c("102", "203", "305") ~ "LD-MS",
   TRUE ~ "Other" # This line handles cases where plot is not listed
-))
+)) %>%
+  filter(Treatment != "Other") %>%
+  mutate(Drain = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF",
+  Plot %in% c("101", "204", "306") ~ "LD",
+  Plot %in% c("103", "205", "304") ~ "LD",
+  Plot %in% c("102", "203", "305") ~ "LD",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(Sulfate = case_when(
+  Plot %in% c("105", "201", "301") ~ "0",
+  Plot %in% c("106", "206", "302") ~ "300",
+  Plot %in% c("101", "204", "306") ~ "0",
+  Plot %in% c("103", "205", "304") ~ "300",
+  Plot %in% c("102", "203", "305") ~ "350",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(Sulfate_logic = case_when(
+  Plot %in% c("105", "201", "301") ~ "0",
+  Plot %in% c("106", "206", "302") ~ "Yes",
+  Plot %in% c("101", "204", "306") ~ "0",
+  Plot %in% c("103", "205", "304") ~ "Yes",
+  Plot %in% c("102", "203", "305") ~ "Yes",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  mutate(
+    Blk = str_sub(as.character(Plot), 1, 1)
+  ) %>%
+  filter(Treatment !="LD-MS") 
 
 #change to the right variable classes
 sulfate_all$Plot <- as.factor(sulfate_all$Plot)
@@ -73,6 +102,32 @@ sulfate_all$Treatment <- as.factor(sulfate_all$Treatment)
 #check that all variables look good
 str(sulfate_all)
 ```
+
+# ANOVA
+
+```{r}
+model <- lmer(Sulfate_Concentration_ppm~Drain*Sulfate+(1|Plot)+(1|Blk)+(1|Date_Collected), data=sulfate_all)
+pls205_diagnostics(model)
+anova(model)
+```
+
+
+# Pairwise
+
+```{r}
+
+model <- lmer(Sulfate_Concentration_ppm~Treatment*as.factor(Date_Collected)+(1|Plot), data=sulfate_all)
+pls205_diagnostics(model)
+anova(model)
+
+
+Treatment_means = emmeans(model,spec = 'Treatment', by = "Date_Collected")
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+```
+
 
 # Raw scatter plot 
 
