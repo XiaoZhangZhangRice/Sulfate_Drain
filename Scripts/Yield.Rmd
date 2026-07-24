@@ -45,36 +45,80 @@ library(ggrepel)
 # Read data
 
 ```{r}
-field <- read_excel("../Data/Lyy_RGF_OD_biomass_Data.xlsx", sheet = 1)
-str(field)
+yield <- read_excel("../Data/yield_data.xlsx", sheet = 1) %>%
+  mutate(Treatment = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF-S",
+  Plot %in% c("101", "204", "306") ~ "MD",
+  Plot %in% c("103", "205", "304") ~ "MD-S",
+  Plot %in% c("102", "203", "305") ~ "MD-MS",
+  TRUE ~ "Other" # This line handles cases where plot is not listed
+)) %>%
+  filter(Treatment != "Other") %>% filter(Treatment != "MD-MS") %>% 
+  #remove short drain (not a treatment for this study), remove double sulfate treatment (not included in analyses)
+  mutate(Sulfate = case_when(
+  Plot %in% c("105", "201", "301") ~ "0",
+  Plot %in% c("106", "206", "302") ~ "300",
+  Plot %in% c("101", "204", "306") ~ "0",
+  Plot %in% c("103", "205", "304") ~ "300",
+)) %>% 
+  filter(Treatment != "Other") %>%
+  mutate(Drain = case_when(
+  Plot %in% c("105", "201", "301") ~ "CF",
+  Plot %in% c("106", "206", "302") ~ "CF",
+  Plot %in% c("101", "204", "306") ~ "MD",
+  Plot %in% c("103", "205", "304") ~ "MD",
+)) %>% 
+  mutate(across(where(is.character), as.factor))
+
+
+str(yield)
 ```
 
-# Compute interim yield
+# Compute yield @ 14% moisture
 
 
 ```{r}
-field$interim_yield_Mg_ha <- (field$OD_Total_Biomass_g*0.51/1000/1000)/((pi*(76.2/2)*(76.2/2))/(10000*10000))*(98.1/86)
+# plants were harvested from a large PVC ring with diameter of 76.2 cm
+# grains were stripped by hand and dried @ 60 degrees Celsius
+# Here we obtain the dry grain weight, correct for moisture content and scale by area to get yield @ Mg/ha @ 14% moisture
 
-yield <- field %>% 
-  select(Plot_RGF, interim_yield_Mg_ha) %>%
-  mutate(Treatment = case_when(
-  Plot_RGF %in% c("105", "201", "301") ~ "CF",
-  Plot_RGF %in% c("106", "206", "302") ~ "CF-PP",
-  Plot_RGF %in% c("101", "204", "306") ~ "LD",
-  Plot_RGF %in% c("103", "205", "304") ~ "LD-PP",
-  Plot_RGF %in% c("102", "203", "305") ~ "LD-MS",
-  TRUE ~ "Other" # This line handles cases where plot is not listed
-)) %>%
-  filter(Treatment != "Other") #remove short drain (not a treatment for this study)
-  
+# get bag weights 
+yield <- yield %>%
+mutate(style_bag_weight = case_when(
+  paper_bag_style %in% c("2025_HD") ~ 18.885,
+  paper_bag_style %in% c("2025_LD") ~ 12) )
 
-model <- lm(interim_yield_Mg_ha~Treatment, data = yield)
+yield$total_bag_weight <- yield$style_bag_weight * yield$number_of_paper_bags                                    
+
+yield$grain_dry <- yield$grain_plus_paper_bag_and_rubberband_oven_dry_weight_g-yield$total_bag_weight
+yield$grain_yield <- ((yield$grain_dry*(98.1/86))/1000000)/((pi*(76.2/2)*(76.2/2))/100000000)
+
+```
+# ANOVA and post-hoc
+
+```{r}
+model <- lm(grain_yield~Drain*Sulfate, data = yield)
 anova(model)
-means <- emmeans(model, spec = "Treatment")
-cld(means)
+means <- emmeans(model, ~ Drain + Sulfate)
+cld <- cld(emmeans(model, ~ Drain + Sulfate),adjust = "Sidak")
 
+cld
+
+model_trt <- lm(grain_yield~Treatment, data = yield)
+anova(model_trt)
+means_trt <- emmeans(model_trt,spec = 'Treatment')
+cld_trt <- cld(means_trt,adjust = "Tukey")
+
+cld_trt
+```
+
+# Brief Visualization
+
+```{r}
 ggplot(yield,
-       aes(x=Treatment, y=interim_yield_Mg_ha))+
+       aes(x=Treatment, y=grain_yield))+
   geom_boxplot()+
   geom_point()
 ```
+
