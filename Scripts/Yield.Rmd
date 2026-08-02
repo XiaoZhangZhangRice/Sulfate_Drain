@@ -101,7 +101,7 @@ yield$grain_yield <- ((yield$grain_dry*(98.1/86))/1000000)/((pi*(76.2/2)*(76.2/2
 model <- lm(grain_yield~Drain*Sulfate, data = yield)
 anova(model)
 means <- emmeans(model, ~ Drain + Sulfate)
-cld <- cld(emmeans(model, ~ Drain + Sulfate),adjust = "Sidak")
+cld <- cld(emmeans(model, ~ Drain + Sulfate),adjust = "Tukey")
 
 cld
 

@@ -1,0 +1,320 @@
+---
+title: "GC_Data_Wrangling"
+author: "Zhang"
+output:
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+# Necessary libraries
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(ggplot2)
+theme_set(theme_bw())
+library(emmeans)
+library(multcomp)
+library(PLS205)
+library(lme4)
+library(lmerTest)
+library(multcompView)
+library(car)
+library(Rmisc) 
+library(dplyr) #https://r4ds.had.co.nz/ (Chapter 3, Chapter 5, look at filter and select)
+# https://bookdown.org/ansellbr/WEHI_tidyR_course_book/
+library(stringr) 
+library(data.table)
+library(GGally)
+library(formatR)
+library(readxl)
+library(FluxCalR)
+library(tidyverse)
+library(fuzzyjoin)
+library(purrr)
+library(data.table)
+library(broom)
+library(lubridate)
+library(readxl)
+library(openxlsx)
+library(ggrepel)
+```
+
+# Read belt files
+
+```{r}
+Belt_Data <- list.files(
+  "Data/Flux_Calc/GC_Data/Belt_Data",
+  pattern = "\\.xlsx$",
+  full.names = TRUE
+) %>%
+  map_dfr(
+    ~ read_excel(.x) %>%
+      mutate(plot_number = as.character(plot_number)),
+    .id = "File_ID"
+  ) %>%
+  mutate(Source_File = basename(list.files(
+    "Data/Flux_Calc/GC_Data/Belt_Data",
+    pattern = "\\.xlsx$",
+    full.names = TRUE
+  )[as.integer(File_ID)])) %>%
+  select(-File_ID)
+
+#keep only data from RGF and from 2025
+
+Belt_Data <- Belt_Data %>%
+  filter(site != "monta") %>%
+  filter(year == 2025)
+
+Belt_Data <- Belt_Data %>%
+  mutate(batch = gsub("_belt_data\\.xlsx", "", Source_File))
+
+str(Belt_Data)
+```
+
+# Read peak area files
+
+```{r}
+files <- list.files(
+  "Data/Flux_Calc/GC_Data/Peak_Area",
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+Peak_Area <- map_dfr(
+  files,
+  ~ read_csv(.x),
+  .id = "File_ID"
+) %>%
+  mutate(Source_File = basename(files[as.integer(File_ID)])) %>%
+  select(-File_ID)
+
+#create batch col
+Peak_Area <- Peak_Area %>%
+  mutate(batch = gsub("_peak_area\\.csv", "", Source_File))
+
+#make gc_number col
+Peak_Area <- Peak_Area %>%
+  rename(gc_number = `...1`)
+```
+
+# Read temperature files
+
+```{r}
+Temperature <- read_xlsx("../Data/Flux_Calc/Field_Data/temperature_data_raw.xlsx", sheet = 1)
+
+Temperature <- Temperature %>%
+  filter(site != "monta") %>%
+  filter(year == 2025)
+```
+
+
+# Read chamber covariate file
+
+```{r}
+Headspace <- read_xlsx("../Data/Flux_Calc/Field_Data/headspace_and_chamber_height_data.xlsx", sheet = 1)
+
+Headspace <- Headspace %>%
+  filter(site != "monta") %>%
+  filter(year == 2025)
+
+
+Headspace$Extension_ft <- Headspace$extension_inches/12
+
+str(Temperature)
+
+```
+
+# Combine into one giant file for next step processing
+
+
+```{r}
+# ==========================================================
+# 1. Prepare Peak_Area
+# ==========================================================
+
+Peak_Area2 <- Peak_Area %>%
+  mutate(
+    batch = as.character(batch),
+    gc_number = as.numeric(gc_number)
+  )
+
+
+
+# ==========================================================
+# 2. Prepare Belt_Data using final column names
+# ==========================================================
+
+Belt_Data2 <- Belt_Data %>%
+  mutate(
+    batch = as.character(batch),
+    gc_number = as.numeric(gc_number),
+    GC_Run = batch,
+    Plot = as.character(plot_number),
+    date_sampled_AD = as.Date(date_sampled_AD),
+    Time = as.numeric(time)
+  )
+
+
+
+# ==========================================================
+# 3. Add Peak_Area
+# Match: batch + gc_number
+# ==========================================================
+
+final_flux <- Belt_Data2 %>%
+  left_join(
+    Peak_Area2 %>%
+      select(
+        batch,
+        gc_number,
+        CH4,
+        N2O
+      ),
+    by = c(
+      "batch",
+      "gc_number"
+    )
+  ) %>%
+  mutate(
+    
+    CH4_Sample_Peak = if_else(
+      sample_type == "sample",
+      CH4,
+      NA_real_
+    ),
+    
+    N2O_Sample_Peak = if_else(
+      sample_type == "sample",
+      N2O,
+      NA_real_
+    ),
+    
+    Std_CH4_PPM = if_else(
+      sample_type == "standard",
+      CH4,
+      NA_real_
+    ),
+    
+    Std_N2O_PPM = if_else(
+      sample_type == "standard",
+      N2O,
+      NA_real_
+    ),
+    
+    Std_N2O_Peak = Std_N2O_PPM,
+    
+    Sample_Type = case_when(
+      sample_type == "sample" ~ "Sample",
+      sample_type == "standard" ~ "Std",
+      TRUE ~ NA_character_
+    )
+  )
+
+
+
+# ==========================================================
+# 4. Prepare Temperature
+# Match: Plot + date_sampled_AD + Time
+# ==========================================================
+
+Temperature2 <- Temperature %>%
+  mutate(
+    Plot = as.character(plot_number),
+    date_sampled_AD = as.Date(date_sampled_AD),
+    Time = as.numeric(time)
+  ) %>%
+  select(
+    Plot,
+    date_sampled_AD,
+    Time,
+    Chamber_Temp_C = chamber_temp_C
+  )
+
+
+final_flux <- final_flux %>%
+  left_join(
+    Temperature2,
+    by = c(
+      "Plot",
+      "date_sampled_AD",
+      "Time"
+    )
+  )
+
+
+
+# ==========================================================
+# 5. Prepare Headspace
+# Match: Plot + date_sampled_AD
+# ==========================================================
+
+Headspace2 <- Headspace %>%
+  mutate(
+    Plot = as.character(plot_number),
+    date_sampled_AD = as.Date(date_sampled_AD)
+  ) %>%
+  select(
+    Plot,
+    date_sampled_AD,
+    Headspace1_cm = headspace1_cm,
+    Headspace2_cm = headspace2_cm,
+    Headspace3_cm = headspace3_cm,
+    Headspace4_cm = headspace4_cm,
+    Extension_ft,
+    Chamber_Radius = collar_radius_cm
+  )
+
+
+final_flux <- final_flux %>%
+  left_join(
+    Headspace2,
+    by = c(
+      "Plot",
+      "date_sampled_AD"
+    )
+  )
+
+
+
+# ==========================================================
+# 6. Select final columns
+# ==========================================================
+
+final_flux <- final_flux %>%
+  select(
+    Std_N2O_Peak,
+    Std_CH4_PPM,
+    Std_N2O_PPM,
+    CH4_Sample_Peak,
+    N2O_Sample_Peak,
+    Sample_Type,
+    GC_Run,
+    Plot,
+    Time,
+    Chamber_Temp_C,
+    Headspace1_cm,
+    Headspace2_cm,
+    Headspace3_cm,
+    Headspace4_cm,
+    Extension_ft,
+    Chamber_Radius
+  )
+
+
+
+# ==========================================================
+# 7. Export Excel
+# ==========================================================
+
+
+write.xlsx(
+  final_flux,
+  "../Data/Flux_Calc/ImportFiles/final_flux_input.xlsx",
+  overwrite = TRUE
+)
+
+```
+
