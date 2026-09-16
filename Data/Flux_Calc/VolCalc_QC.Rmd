@@ -1,0 +1,535 @@
+---
+title: "VolCalc QC Walkthrough"
+author: "Zhang"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
+```
+
+This document runs the flux calculation pipeline (`VolCalc_v2.R`'s logic) one file at a time, with a data-quality check printed after every stage. If something upstream broke, you should be able to see exactly where by scanning the tables top to bottom, instead of waiting for `VolCalc.R` to error out or silently hand back bad numbers.
+
+Change `TARGET_FILE` below to point at whichever file in `ImportFiles/` you want to inspect. The last section runs the same logic over every *other* file in `ImportFiles/` without the chunk-by-chunk printing, so nothing is skipped — you just don't get the full QC dump for files you've already checked.
+
+# 1. Setup
+
+```{r libraries}
+library(readxl)
+library(writexl)
+library(openxlsx)
+library(dplyr)
+library(knitr)
+
+DETECTION_THRESHOLD   <- 0.000183
+LINEARITY_R2_FULL     <- 0.845
+LINEARITY_R2_FALLBACK <- 0.8545
+FLUX_TIME_CONVERSION  <- 240 * 60
+MOLAR_VOLUME_STP      <- 22.4     # L/mol at STP
+CH4_MW                <- 0.016043 # g/mol
+N2O_MW                <- 0.044014 # g/mol
+CALIBRATION_R2_WARN   <- 0.95     # flag a batch's calibration if R^2 falls below this
+
+BASE_DIR    <- "../Data/Flux_Calc"       # <-- matches your GC_Data_Wrangling.Rmd convention
+TARGET_FILE <- "final_flux_input.xlsx"   # <-- change this to QC a different file
+
+kable(data.frame(
+  Constant = c("DETECTION_THRESHOLD","LINEARITY_R2_FULL","LINEARITY_R2_FALLBACK",
+               "FLUX_TIME_CONVERSION","CALIBRATION_R2_WARN"),
+  Value = c(DETECTION_THRESHOLD, LINEARITY_R2_FULL, LINEARITY_R2_FALLBACK,
+            FLUX_TIME_CONVERSION, CALIBRATION_R2_WARN)
+), caption = "Constants in effect for this run")
+```
+
+```{r fit-gas-function}
+# Per-group gas fit: detection test + linearity test (with the original
+# script's 4-point "drop one, keep best 3" fallback), generalized to use
+# whichever Time values a group actually has.
+fit_gas <- function(times, conc) {
+  ok    <- !is.na(times) & !is.na(conc)
+  times <- times[ok]
+  conc  <- conc[ok]
+  n     <- length(times)
+
+  if (n < 2) {
+    return(list(rsq = NA_real_, grad = NA_real_, lin = "MISSING", detect = "MISSING"))
+  }
+
+  o     <- order(times)
+  times <- times[o]
+  conc  <- conc[o]
+
+  # PASS if ANY later point clears the threshold vs. the first
+  # reading; NONDETECT only if every later point stays within it.
+  # (Previously: any() single flat comparison zeroed the whole
+  # group even when other points clearly showed a real change.)
+  base   <- conc[1]
+  detect <- if (any(abs(conc[-1] - base) >= DETECTION_THRESHOLD)) "PASS" else "NONDETECT"
+
+  fit <- tryCatch(lm(conc ~ times), error = function(e) NULL)
+  if (is.null(fit)) {
+    return(list(rsq = NA_real_, grad = NA_real_, lin = "MISSING", detect = detect))
+  }
+  rsq  <- summary(fit)$r.squared
+  grad <- unname(coef(fit)[2])
+
+  lin <- "MISS"
+  if (!is.na(rsq) && rsq > LINEARITY_R2_FULL) {
+    lin <- "LIN"
+  } else if (n == 4) {
+    best_rsq <- -Inf
+    best_grad <- grad
+    for (drop in 1:4) {
+      t3 <- times[-drop]
+      c3 <- conc[-drop]
+      f3 <- tryCatch(lm(c3 ~ t3), error = function(e) NULL)
+      if (is.null(f3)) next
+      r3 <- summary(f3)$r.squared
+      if (!is.na(r3) && r3 > best_rsq) {
+        best_rsq  <- r3
+        best_grad <- unname(coef(f3)[2])
+      }
+    }
+    if (is.finite(best_rsq) && best_rsq > LINEARITY_R2_FALLBACK) {
+      lin  <- "LIN"
+      rsq  <- best_rsq
+      grad <- best_grad
+    }
+  }
+
+  if (lin == "MISS")         grad <- 0
+  if (detect == "NONDETECT") grad <- 0
+
+  list(rsq = rsq, grad = grad, lin = lin, detect = detect)
+}
+```
+
+# 2. Read the target file
+
+```{r read-file}
+filepath <- file.path(BASE_DIR, "ImportFiles", TARGET_FILE)
+df <- read_excel(filepath)
+
+if ("GC_Run " %in% names(df)) df <- df %>% dplyr::rename(GC_Run = `GC_Run `)
+if ("Time "   %in% names(df)) df <- df %>% dplyr::rename(Time   = `Time `)
+if (!"GC_Run" %in% names(df)) df$GC_Run <- TARGET_FILE
+
+cat("File:", TARGET_FILE, "\n")
+cat("Rows:", nrow(df), " Columns:", ncol(df), "\n")
+kable(head(df, 5), caption = "First 5 rows as read")
+```
+
+## 2a. Data quality: missing values by column
+
+**Check this before trusting anything downstream.** High `% NA` on `Chamber_Temp_C` or `Headspace*_cm` means those rows will drop out of the flux calc later; high `% NA` on `Std_*` means calibration will be starved for that batch.
+
+```{r missing-value-audit}
+na_summary <- data.frame(
+  Column   = names(df),
+  N_NA     = sapply(df, function(x) sum(is.na(x))),
+  Pct_NA   = round(sapply(df, function(x) mean(is.na(x))) * 100, 1)
+)
+na_summary <- na_summary[order(-na_summary$Pct_NA), ]
+kable(na_summary, row.names = FALSE, caption = "Missing values per column")
+```
+
+```{r sample-type-audit}
+kable(as.data.frame(table(df$Sample_Type, useNA = "ifany")),
+      col.names = c("Sample_Type", "N"),
+      caption = "Row counts by Sample_Type")
+```
+
+# 3. Chamber volume / geometry
+
+```{r geometry}
+headspace_mean <- rowMeans(
+  df[, c("Headspace1_cm", "Headspace2_cm", "Headspace3_cm", "Headspace4_cm")],
+  na.rm = TRUE
+)
+extension_cm   <- df$Extension_ft * 30.48
+chamber_Height <- extension_cm + 7.62 + headspace_mean
+baseArea       <- pi * df$Chamber_Radius ^ 2
+ChamberVolCm3  <- baseArea * chamber_Height
+ChamberVolL    <- ChamberVolCm3 / 1000
+BaseAreaM2     <- baseArea / 10000  # cm^2 -> m^2 (area, not volume -- was mislabeled "M3" in the original script)
+VolAreaRatio   <- ChamberVolL / BaseAreaM2
+
+df$HeadspaceMean_cm <- headspace_mean
+df$Extension_cm     <- extension_cm
+df$Chamber_Height   <- chamber_Height
+df$Total_Volume_cm3 <- ChamberVolCm3
+df$Total_Volume_L   <- ChamberVolL
+df$Base_Area        <- baseArea
+df$Base_Area_m2     <- BaseAreaM2
+df$VolumeRatio      <- VolAreaRatio
+```
+
+## 3a. Data quality: geometry sanity checks
+
+A negative or zero `Chamber_Height`/`VolumeRatio` means a headspace or radius value is wrong (or missing) for that row — worth fixing before flux calc, not after.
+
+```{r geometry-audit}
+geom_summary <- data.frame(
+  Metric = c("Chamber_Height", "VolumeRatio", "Chamber_Radius"),
+  Min    = c(min(chamber_Height, na.rm=TRUE), min(VolAreaRatio, na.rm=TRUE), min(df$Chamber_Radius, na.rm=TRUE)),
+  Median = c(median(chamber_Height, na.rm=TRUE), median(VolAreaRatio, na.rm=TRUE), median(df$Chamber_Radius, na.rm=TRUE)),
+  Max    = c(max(chamber_Height, na.rm=TRUE), max(VolAreaRatio, na.rm=TRUE), max(df$Chamber_Radius, na.rm=TRUE)),
+  N_NA   = c(sum(is.na(chamber_Height)), sum(is.na(VolAreaRatio)), sum(is.na(df$Chamber_Radius))),
+  N_LE_0 = c(sum(chamber_Height <= 0, na.rm=TRUE), sum(VolAreaRatio <= 0, na.rm=TRUE), sum(df$Chamber_Radius <= 0, na.rm=TRUE))
+)
+kable(geom_summary, caption = "Geometry ranges — check N_LE_0 is 0")
+
+bad_geom <- df[which(chamber_Height <= 0 | VolAreaRatio <= 0), c("GC_Run","Plot","Date","Time")]
+if (nrow(bad_geom) > 0) {
+  kable(bad_geom, caption = "Rows with non-positive chamber height/volume ratio — REVIEW")
+} else {
+  cat("OK: no rows with non-positive chamber height or volume ratio.\n")
+}
+```
+
+# 4. Per-batch (GC_Run) calibration
+
+This is the most important QC table in the whole document — **one row per batch**, so you can immediately see which batches have weak standards before they quietly poison that batch's flux numbers.
+
+```{r calibration}
+df$CH4_Output <- NA_real_
+df$N2O_Output <- NA_real_
+
+batches <- unique(df$GC_Run)
+calib_report <- vector("list", length(batches))
+
+for (i in seq_along(batches)) {
+  b <- batches[i]
+  rows_b <- which(df$GC_Run == b)
+
+  std_ch4 <- df[rows_b, ]
+  std_ch4 <- std_ch4[!is.na(std_ch4$Std_CH4_Peak) & !is.na(std_ch4$Std_CH4_PPM), ]
+  n_ch4 <- nrow(std_ch4)
+  ch4_r2 <- NA_real_; ch4_slope <- NA_real_
+  if (n_ch4 >= 2) {
+    CH4model  <- lm(Std_CH4_PPM ~ Std_CH4_Peak, data = std_ch4)
+    ch4_r2    <- summary(CH4model)$r.squared
+    ch4_slope <- unname(coef(CH4model)[2])
+    ch4_c     <- unname(coef(CH4model)[1])
+    idx <- rows_b[!is.na(df$CH4_Sample_Peak[rows_b])]
+    df$CH4_Output[idx] <- ch4_slope * df$CH4_Sample_Peak[idx] + ch4_c
+  }
+
+  std_n2o <- df[rows_b, ]
+  std_n2o <- std_n2o[!is.na(std_n2o$Std_N2O_Peak) & !is.na(std_n2o$Std_N2O_PPM), ]
+  n_n2o <- nrow(std_n2o)
+  n2o_r2 <- NA_real_; n2o_slope <- NA_real_
+  if (n_n2o >= 2) {
+    N2Omodel  <- lm(Std_N2O_PPM ~ Std_N2O_Peak, data = std_n2o)
+    n2o_r2    <- summary(N2Omodel)$r.squared
+    n2o_slope <- unname(coef(N2Omodel)[2])
+    n2o_c     <- unname(coef(N2Omodel)[1])
+    idx <- rows_b[!is.na(df$N2O_Sample_Peak[rows_b])]
+    df$N2O_Output[idx] <- n2o_slope * df$N2O_Sample_Peak[idx] + n2o_c
+  }
+
+  std_names_present <- unique(na.omit(df$standard_name[rows_b]))
+  # standard_name may not exist if this file predates that column
+  required <- c("1N500", "10M", "10N", "ambient")
+  missing_types <- if ("standard_name" %in% names(df)) setdiff(required, std_names_present) else NA
+
+  calib_report[[i]] <- data.frame(
+    GC_Run         = b,
+    N_CH4_Std      = n_ch4,
+    CH4_Slope      = ch4_slope,
+    CH4_R2         = ch4_r2,
+    N_N2O_Std      = n_n2o,
+    N2O_Slope      = n2o_slope,
+    N2O_R2         = n2o_r2,
+    Missing_Std_Types = if (length(missing_types) == 0 || (length(missing_types)==1 && is.na(missing_types))) "" else paste(missing_types, collapse=", "),
+    Flag           = ""
+  )
+}
+
+calib_report <- bind_rows(calib_report)
+calib_report$Flag <- with(calib_report, ifelse(
+  N_CH4_Std < 2 | N_N2O_Std < 2, "CHECK: <2 standards",
+  ifelse(!is.na(CH4_R2) & CH4_R2 < CALIBRATION_R2_WARN, paste0("CHECK: CH4 R2=", round(CH4_R2,3)),
+  ifelse(!is.na(N2O_R2) & N2O_R2 < CALIBRATION_R2_WARN, paste0("CHECK: N2O R2=", round(N2O_R2,3)),
+  ifelse(Missing_Std_Types != "", paste0("CHECK: missing ", Missing_Std_Types), "OK")))
+))
+
+kable(calib_report, digits = 5, row.names = FALSE, caption = "Per-batch calibration summary")
+
+n_flagged <- sum(calib_report$Flag != "OK")
+if (n_flagged > 0) {
+  cat("\n", n_flagged, "of", nrow(calib_report), "batches flagged for review (see Flag column above).\n")
+} else {
+  cat("\nOK: every batch has >=2 standards for each gas, R^2 >=", CALIBRATION_R2_WARN, ", and all 4 standard types present.\n")
+}
+```
+
+## 4a. Calibration curves (visual check)
+
+```{r calibration-plots, fig.width=5, fig.height=4}
+for (b in batches) {
+  rows_b <- which(df$GC_Run == b)
+  std_ch4 <- df[rows_b, ]
+  std_ch4 <- std_ch4[!is.na(std_ch4$Std_CH4_Peak) & !is.na(std_ch4$Std_CH4_PPM), ]
+  if (nrow(std_ch4) >= 2) {
+    plot(std_ch4$Std_CH4_Peak, std_ch4$Std_CH4_PPM, type = "o",
+         xlab = "CH4 Peak", ylab = "CH4 PPM", main = paste0(b, " — CH4 Calibration"))
+  }
+}
+for (b in batches) {
+  rows_b <- which(df$GC_Run == b)
+  std_n2o <- df[rows_b, ]
+  std_n2o <- std_n2o[!is.na(std_n2o$Std_N2O_Peak) & !is.na(std_n2o$Std_N2O_PPM), ]
+  if (nrow(std_n2o) >= 2) {
+    plot(std_n2o$Std_N2O_Peak, std_n2o$Std_N2O_PPM, type = "o",
+         xlab = "N2O Peak", ylab = "N2O PPM", main = paste0(b, " — N2O Calibration"))
+  }
+}
+```
+
+# 5. Concentration conversion
+
+```{r concentration}
+N2O_Vol <- (760 * MOLAR_VOLUME_STP * (273 + df$Chamber_Temp_C)) / (760 * 273)
+df$N2O_Volume        <- N2O_Vol
+df$N2O_Concentration <- df$N2O_Output / N2O_Vol * N2O_MW
+
+CH4_Vol <- (760 * MOLAR_VOLUME_STP * (273 + df$Chamber_Temp_C)) / (760 * 273)
+df$CH4_Volume        <- CH4_Vol
+df$CH4_Concentration <- df$CH4_Output / CH4_Vol * CH4_MW
+```
+
+## 5a. Data quality: concentration output
+
+```{r concentration-audit}
+sample_rows <- df[df$Sample_Type == "Sample", ]
+conc_summary <- data.frame(
+  Column = c("CH4_Concentration", "N2O_Concentration"),
+  N          = nrow(sample_rows),
+  N_NA       = c(sum(is.na(sample_rows$CH4_Concentration)), sum(is.na(sample_rows$N2O_Concentration))),
+  Pct_NA     = round(c(mean(is.na(sample_rows$CH4_Concentration)), mean(is.na(sample_rows$N2O_Concentration))) * 100, 1),
+  Median     = c(median(sample_rows$CH4_Concentration, na.rm=TRUE), median(sample_rows$N2O_Concentration, na.rm=TRUE)),
+  Max        = c(max(sample_rows$CH4_Concentration, na.rm=TRUE), max(sample_rows$N2O_Concentration, na.rm=TRUE))
+)
+kable(conc_summary, digits = 6, caption = "Concentration summary (Sample rows only)")
+
+if (any(conc_summary$Pct_NA > 0)) {
+  cat("\nSample rows missing a concentration (usually a missing Chamber_Temp_C or a batch with <2 standards):\n")
+  missing_rows <- sample_rows[is.na(sample_rows$CH4_Concentration) | is.na(sample_rows$N2O_Concentration),
+                               c("GC_Run","Plot","Date","Time","Chamber_Temp_C")]
+  kable(head(missing_rows, 20), caption = "First 20 affected rows")
+}
+```
+
+# 6. Flux calculation
+
+Grouped by (GC_Run, Plot, Date), fit against each group's **actual** Time values — not a hardcoded 0/21/42/63.
+
+```{r flux-groups}
+flux_data <- df %>%
+  dplyr::filter(!is.na(Plot)) %>%
+  dplyr::select(GC_Run, Plot, Date, Time, N2O_Concentration, CH4_Concentration, VolumeRatio)
+
+group_keys <- flux_data %>% dplyr::distinct(GC_Run, Plot, Date)
+cat("Total (GC_Run, Plot, Date) groups to fit:", nrow(group_keys), "\n")
+
+results <- vector("list", nrow(group_keys))
+
+for (i in seq_len(nrow(group_keys))) {
+  key <- group_keys[i, ]
+  rows_g <- flux_data %>%
+    dplyr::filter(
+      GC_Run == key$GC_Run,
+      Plot   == key$Plot,
+      (is.na(Date) & is.na(key$Date)) | (!is.na(Date) & !is.na(key$Date) & Date == key$Date)
+    )
+
+  volumeratio <- rows_g$VolumeRatio[1]
+  n2o_fit <- fit_gas(rows_g$Time, rows_g$N2O_Concentration)
+  ch4_fit <- fit_gas(rows_g$Time, rows_g$CH4_Concentration)
+
+  n2o_flux <- if (is.na(n2o_fit$grad) || is.na(volumeratio)) NA_real_ else n2o_fit$grad * volumeratio * FLUX_TIME_CONVERSION
+  ch4_flux <- if (is.na(ch4_fit$grad) || is.na(volumeratio)) NA_real_ else ch4_fit$grad * volumeratio * FLUX_TIME_CONVERSION
+
+  results[[i]] <- data.frame(
+    GC_Run        = key$GC_Run,
+    Plot          = key$Plot,
+    Date          = format(key$Date),
+    N_points      = nrow(rows_g),
+    N20Detection  = n2o_fit$detect,
+    CH4Detection  = ch4_fit$detect,
+    N20_Rsq       = n2o_fit$rsq,
+    CH4_Rsq       = ch4_fit$rsq,
+    N20_Linearity = n2o_fit$lin,
+    CH4_Linearity = ch4_fit$lin,
+    N20_Slope     = n2o_fit$grad,
+    CH4_Slope     = ch4_fit$grad,
+    N20_Flux      = n2o_flux,
+    CH4_Flux      = ch4_flux,
+    stringsAsFactors = FALSE
+  )
+}
+results <- bind_rows(results)
+```
+
+## 6a. Data quality: group sizes
+
+Every group should have exactly 4 points unless you know a plot was sampled on a different schedule. Anything else is worth a second look.
+
+```{r group-size-audit}
+kable(as.data.frame(table(results$N_points)),
+      col.names = c("N_points_in_group", "N_groups"),
+      caption = "Distribution of points per (GC_Run, Plot, Date) group")
+
+odd_groups <- results[results$N_points != 4, c("GC_Run","Plot","Date","N_points")]
+if (nrow(odd_groups) > 0) {
+  kable(odd_groups, caption = "Groups without exactly 4 points — confirm these are real (e.g. a different sampling protocol), not a merge gap")
+} else {
+  cat("OK: every group has exactly 4 points.\n")
+}
+```
+
+## 6b. Data quality: detection / linearity outcome
+
+**This is the table to check before trusting any CH4_Flux/N20_Flux number.** A flux of 0 could mean "PASS + LIN, true zero slope" or "NONDETECT" or "MISS" — this breaks that down so 0 isn't a black box.
+
+```{r detection-audit}
+kable(as.data.frame(table(CH4 = results$CH4Detection, useNA = "ifany")),
+      col.names = c("CH4Detection", "N"), caption = "CH4 detection outcome")
+kable(as.data.frame(table(N2O = results$N20Detection, useNA = "ifany")),
+      col.names = c("N20Detection", "N"), caption = "N2O detection outcome")
+kable(as.data.frame(table(CH4 = results$CH4_Linearity, useNA = "ifany")),
+      col.names = c("CH4_Linearity", "N"), caption = "CH4 linearity outcome")
+kable(as.data.frame(table(N2O = results$N20_Linearity, useNA = "ifany")),
+      col.names = c("N20_Linearity", "N"), caption = "N2O linearity outcome")
+
+missing_groups <- results[results$CH4Detection == "MISSING" | results$N20Detection == "MISSING",
+                           c("GC_Run","Plot","Date","N_points")]
+if (nrow(missing_groups) > 0) {
+  kable(missing_groups, caption = "Groups marked MISSING (fewer than 2 usable concentration points) — REVIEW")
+} else {
+  cat("OK: no groups marked MISSING.\n")
+}
+```
+
+## 6c. Flux summary
+
+```{r flux-summary}
+flux_summary <- data.frame(
+  Gas       = c("CH4_Flux", "N20_Flux"),
+  N         = nrow(results),
+  N_NA      = c(sum(is.na(results$CH4_Flux)), sum(is.na(results$N20_Flux))),
+  N_zero    = c(sum(results$CH4_Flux == 0, na.rm=TRUE), sum(results$N20_Flux == 0, na.rm=TRUE)),
+  N_nonzero = c(sum(results$CH4_Flux != 0, na.rm=TRUE), sum(results$N20_Flux != 0, na.rm=TRUE)),
+  Median_nonzero = c(median(results$CH4_Flux[results$CH4_Flux != 0], na.rm=TRUE),
+                      median(results$N20_Flux[results$N20_Flux != 0], na.rm=TRUE))
+)
+kable(flux_summary, digits = 6, caption = "Flux outcome summary")
+
+kable(head(results, 10), digits = 6, caption = "First 10 result rows")
+```
+
+# 7. Export this file's results
+
+```{r export-target}
+dir.create(file.path(BASE_DIR, "Results"), showWarnings = FALSE)
+out_name <- paste0(tools::file_path_sans_ext(TARGET_FILE), "_results.xlsx")
+write_xlsx(results, file.path(BASE_DIR, "Results", out_name))
+cat("Wrote", nrow(results), "rows to", file.path(BASE_DIR, "Results", out_name), "\n")
+```
+
+# 8. Run the rest of ImportFiles/ (no per-chunk QC)
+
+Same logic as above, applied to every other `.xlsx` file in `ImportFiles/`, so nothing gets left out just because you're only spot-checking `TARGET_FILE` above. Each file still gets its own printed one-line summary so you can tell at a glance if any of them need the full walkthrough treatment too.
+
+```{r batch-rest}
+all_files <- list.files(path = file.path(BASE_DIR, "ImportFiles"))
+all_files <- all_files[grepl("\\.xlsx$", all_files) & !startsWith(all_files, "~$")]
+other_files <- setdiff(all_files, TARGET_FILE)
+
+run_one_file <- function(rowname) {
+  filepath <- file.path(BASE_DIR, "ImportFiles", rowname)
+  df <- read_excel(filepath)
+  if ("GC_Run " %in% names(df)) df <- df %>% dplyr::rename(GC_Run = `GC_Run `)
+  if ("Time "   %in% names(df)) df <- df %>% dplyr::rename(Time   = `Time `)
+  if (!"GC_Run" %in% names(df)) df$GC_Run <- rowname
+
+  headspace_mean <- rowMeans(df[, c("Headspace1_cm","Headspace2_cm","Headspace3_cm","Headspace4_cm")], na.rm = TRUE)
+  df$VolumeRatio <- ((pi * df$Chamber_Radius^2) * (df$Extension_ft*30.48 + 7.62 + headspace_mean) / 1000) /
+                     ((pi * df$Chamber_Radius^2) / 10000)
+
+  df$CH4_Output <- NA_real_
+  df$N2O_Output <- NA_real_
+  for (b in unique(df$GC_Run)) {
+    rows_b <- which(df$GC_Run == b)
+    std_ch4 <- df[rows_b, ]; std_ch4 <- std_ch4[!is.na(std_ch4$Std_CH4_Peak) & !is.na(std_ch4$Std_CH4_PPM), ]
+    if (nrow(std_ch4) >= 2) {
+      m <- lm(Std_CH4_PPM ~ Std_CH4_Peak, data = std_ch4)
+      idx <- rows_b[!is.na(df$CH4_Sample_Peak[rows_b])]
+      df$CH4_Output[idx] <- unname(coef(m)[2]) * df$CH4_Sample_Peak[idx] + unname(coef(m)[1])
+    }
+    std_n2o <- df[rows_b, ]; std_n2o <- std_n2o[!is.na(std_n2o$Std_N2O_Peak) & !is.na(std_n2o$Std_N2O_PPM), ]
+    if (nrow(std_n2o) >= 2) {
+      m2 <- lm(Std_N2O_PPM ~ Std_N2O_Peak, data = std_n2o)
+      idx <- rows_b[!is.na(df$N2O_Sample_Peak[rows_b])]
+      df$N2O_Output[idx] <- unname(coef(m2)[2]) * df$N2O_Sample_Peak[idx] + unname(coef(m2)[1])
+    }
+  }
+
+  N2O_Vol <- (760 * MOLAR_VOLUME_STP * (273 + df$Chamber_Temp_C)) / (760 * 273)
+  df$N2O_Concentration <- df$N2O_Output / N2O_Vol * N2O_MW
+  CH4_Vol <- (760 * MOLAR_VOLUME_STP * (273 + df$Chamber_Temp_C)) / (760 * 273)
+  df$CH4_Concentration <- df$CH4_Output / CH4_Vol * CH4_MW
+
+  flux_data <- df %>% dplyr::filter(!is.na(Plot)) %>%
+    dplyr::select(GC_Run, Plot, Date, Time, N2O_Concentration, CH4_Concentration, VolumeRatio)
+  group_keys <- flux_data %>% dplyr::distinct(GC_Run, Plot, Date)
+
+  rows_out <- vector("list", nrow(group_keys))
+  for (i in seq_len(nrow(group_keys))) {
+    key <- group_keys[i, ]
+    rows_g <- flux_data %>% dplyr::filter(
+      GC_Run == key$GC_Run, Plot == key$Plot,
+      (is.na(Date) & is.na(key$Date)) | (!is.na(Date) & !is.na(key$Date) & Date == key$Date)
+    )
+    volumeratio <- rows_g$VolumeRatio[1]
+    n2o_fit <- fit_gas(rows_g$Time, rows_g$N2O_Concentration)
+    ch4_fit <- fit_gas(rows_g$Time, rows_g$CH4_Concentration)
+    n2o_flux <- if (is.na(n2o_fit$grad) || is.na(volumeratio)) NA_real_ else n2o_fit$grad * volumeratio * FLUX_TIME_CONVERSION
+    ch4_flux <- if (is.na(ch4_fit$grad) || is.na(volumeratio)) NA_real_ else ch4_fit$grad * volumeratio * FLUX_TIME_CONVERSION
+    rows_out[[i]] <- data.frame(
+      GC_Run = key$GC_Run, Plot = key$Plot, Date = format(key$Date), N_points = nrow(rows_g),
+      N20Detection = n2o_fit$detect, CH4Detection = ch4_fit$detect,
+      N20_Rsq = n2o_fit$rsq, CH4_Rsq = ch4_fit$rsq,
+      N20_Linearity = n2o_fit$lin, CH4_Linearity = ch4_fit$lin,
+      N20_Slope = n2o_fit$grad, CH4_Slope = ch4_fit$grad,
+      N20_Flux = n2o_flux, CH4_Flux = ch4_flux, stringsAsFactors = FALSE
+    )
+  }
+  bind_rows(rows_out)
+}
+
+if (length(other_files) == 0) {
+  cat("No other files to process — TARGET_FILE was the only one in ImportFiles/.\n")
+} else {
+  for (f in other_files) {
+    res <- run_one_file(f)
+    out_name <- paste0(tools::file_path_sans_ext(f), "_results.xlsx")
+    write_xlsx(res, file.path(BASE_DIR, "Results", out_name))
+    cat(sprintf(
+      "%-30s groups=%-4d CH4 nondetect=%-4d N2O nondetect=%-4d missing=%-4d -> %s\n",
+      f, nrow(res),
+      sum(res$CH4Detection == "NONDETECT", na.rm=TRUE),
+      sum(res$N20Detection == "NONDETECT", na.rm=TRUE),
+      sum(res$CH4Detection == "MISSING" | res$N20Detection == "MISSING", na.rm=TRUE),
+      out_name
+    ))
+  }
+}
+```
