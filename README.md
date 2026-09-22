@@ -11,7 +11,12 @@ Primary: Evaluate preseason sulfate’s ability to suppress methane emissions in
 Secondary: Quantify soil biogeochemical changes, specifically changes in sulfate concentrations and soil microbial communities over time.
 # Treatments
 * CF – Continuous Flood
-* CFS – Continuous Flood, Preplant Sulfate
+* CF-S – Continuous Flood, Preplant Sulfate
 * MD – Mid-season Drain
-* MDS – Mid-season Drain, Pre-season Sulfate
+* MD- S – Mid-season Drain, Pre-season Sulfate
 * MDSS - Mid-season Drain, Pre-season & mid-season sulfate
+
+
+# Overall gas processing pipeline
+* Use GC_Files_Processing.Rmd to clean data. This includes each individual GC batch run file (samples and stds), field measured covariates (temperature and headspace things)
+* Use Flux_Calculation.Rmd to obtain daily flux. 

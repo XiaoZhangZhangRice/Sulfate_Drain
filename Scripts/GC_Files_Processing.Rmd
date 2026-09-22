@@ -474,7 +474,7 @@ write.xlsx(
 )
 ```
 
-# Do calculations manually to make sure flux values are correct
+# Do calculations manually to make sure flux values are correct (this is for excel based checking)
 
 ```{r}
 library(Peak2Flux2)
