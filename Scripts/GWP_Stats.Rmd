@@ -164,10 +164,6 @@ cld(Treatment_means,
     adjust = "sidak",
     Letters = letters)
 
-
-
-
-
 model <- lm(total_CH4_emissions_kg_ha~Treatment, data=Combined%>%filter(Treatment !="LD-MS"))
 
 pls205_diagnostics(model)
