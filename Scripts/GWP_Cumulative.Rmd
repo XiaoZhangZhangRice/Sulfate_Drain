@@ -57,11 +57,13 @@ N2O <- read_excel("../Data/seasonal_total_N2O.xlsx", sheet = 1)
 Combined <- N2O %>%
   left_join(
     CH4 %>%
-      select(plot_number, total_CH4_emissions_kg_ha),
-    by = "plot_number"
+      select(Plot, total_CH4_emissions_kg_ha),
+    by = "Plot"
   )
 
-Combined$GWP <- Combined$total_CH4_emissions_kg_ha*34+ Combined$total_N2O_emissions_kg_ha*298
+Combined$total_N2O_emissions_kg_ha <- Combined$total_N20_emissions_kg_ha 
+
+Combined$GWP <- Combined$total_CH4_emissions_kg_ha*28+ Combined$total_N2O_emissions_kg_ha*265
 Combined <- Combined%>%filter(Treatment !="LD-MS")
 ```
 

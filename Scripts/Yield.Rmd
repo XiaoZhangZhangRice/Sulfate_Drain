@@ -45,7 +45,7 @@ library(ggrepel)
 # Read data
 
 ```{r}
-yield <- read_excel("../Data//Yield/yield_data.xlsx", sheet = 1) %>%
+yield <- read_excel("../Data/Yield/yield_data.xlsx", sheet = 1) %>%
   mutate(Treatment = case_when(
   Plot %in% c("105", "201", "301") ~ "CF",
   Plot %in% c("106", "206", "302") ~ "CF-S",
@@ -95,6 +95,7 @@ yield$grain_dry <- yield$grain_plus_paper_bag_and_rubberband_oven_dry_weight_g-y
 yield$grain_yield <- ((yield$grain_dry*(98.1/86))/1000000)/((pi*(76.2/2)*(76.2/2))/100000000)
 
 ```
+
 # ANOVA and post-hoc
 
 ```{r}
