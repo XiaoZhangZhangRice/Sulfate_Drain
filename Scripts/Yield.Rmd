@@ -45,7 +45,7 @@ library(ggrepel)
 # Read data
 
 ```{r}
-yield <- read_excel("../Data/yield_data.xlsx", sheet = 1) %>%
+yield <- read_excel("../Data//Yield/yield_data.xlsx", sheet = 1) %>%
   mutate(Treatment = case_when(
   Plot %in% c("105", "201", "301") ~ "CF",
   Plot %in% c("106", "206", "302") ~ "CF-S",
