@@ -1,0 +1,66 @@
+---
+title: "Figures"
+author: "Zhang Zhenglin"
+output:
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+# Necessary libraries
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(ggplot2)
+theme_set(theme_bw())
+library(emmeans)
+library(multcomp)
+library(PLS205)
+library(lme4)
+library(lmerTest)
+library(multcompView)
+library(car)
+library(Rmisc) 
+library(dplyr) #https://r4ds.had.co.nz/ (Chapter 3, Chapter 5, look at filter and select)
+# https://bookdown.org/ansellbr/WEHI_tidyR_course_book/
+library(stringr) 
+library(data.table)
+library(GGally)
+library(formatR)
+library(readxl)
+library(FluxCalR)
+library(tidyverse)
+library(fuzzyjoin)
+library(purrr)
+library(data.table)
+library(broom)
+library(lubridate)
+library(readxl)
+library(openxlsx)
+library(ggrepel)
+library(magick)
+
+library(patchwork)
+```
+
+# Figure 2
+
+# Figure 3
+
+```{r}
+nitrous_img  <- image_read("C:/Users/zhang/Documents/GitHub/Sulfate_Drain/Figures/nitrous_over_time_4trt.jpg")
+moisture_img <- image_read("C:/Users/zhang/Documents/GitHub/Sulfate_Drain/Figures/Moisture_graph.jpg")
+
+# stack vertically, matching widths
+figure_3 <- image_append(
+  c(image_resize(nitrous_img, "3000x"),
+    image_resize(moisture_img, "3000x")),
+  stack = TRUE
+)
+
+image_write(figure_3, path = "C:/Users/zhang/Documents/GitHub/Sulfate_Drain/Figures/Figure_3.jpg", quality = 100)
+```
+
+

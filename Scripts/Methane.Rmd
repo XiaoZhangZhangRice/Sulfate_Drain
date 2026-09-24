@@ -248,10 +248,11 @@ write_xlsx(flux_2025_rice_seasonal_emissions, "../Data/seasonal_total_CH4.xlsx")
 
 ```
 
-# ANOVA for CH4
+# Statistical tests
+
+## Time-series 
 
 ```{r}
-
 flux_2025 <- flux_2025 %>%  filter(Treatment !="LD-MS") 
 
 model <- lmer(CH4_Flux~Drain*Sulfate+(1|Plot:Blk)+(1|Blk)+(1|Date), data=flux_2025) 
@@ -265,11 +266,27 @@ Treatment_means <- emmeans(model, ~ Drain * Sulfate)
 cld(Treatment_means,
     adjust = "tukey",
     Letters = letters)
-
-
 ```
+## Cumulative CH4 
 
+```{r}
+# Remove LD-MS from the seasonal-emissions dataframe
+flux_2025_rice_seasonal_emissions <- flux_2025_rice_seasonal_emissions %>%
+  filter(Treatment != "LD-MS") %>%
+  droplevels()
 
+model_4trt <- lm(total_CH4_emissions_kg_ha ~ Sulfate*Drain, data = flux_2025_rice_seasonal_emissions)
+anova(model_4trt)
+pls205_diagnostics(model_4trt)
+
+Treatment_means_4trt <- emmeans(model_4trt, spec = 'Drain', by = "Sulfate")
+Treatment_effects_4trt <- contrast(Treatment_means_4trt, method = "pairwise", adjust = "tukey")
+summary(Treatment_effects_4trt)
+cld(Treatment_means_4trt, adjust = "tukey", Letters = letters)
+
+cld_siddak <- cld(emmeans(Treatment_means_4trt, ~ Drain + Sulfate),adjust = "Sidak")
+cld_siddak
+```
 
 # Plot CH4 over time
 
@@ -283,8 +300,6 @@ methane_all_graphing <- flux %>%
   CH4_Flux_se = mean(CH4_Flux_se))
 ```
 
-
-
 ## Four treatments
 
 ```{r}
@@ -296,8 +311,6 @@ methane_over_time_4 <-
   geom_line()+
   geom_errorbar(aes(ymin=CH4_Flux-CH4_Flux_se, ymax=CH4_Flux+CH4_Flux_se), size=0.5)+
   ggtitle("(a) Methane flux")+
-  scale_y_continuous(limits = c(-700, 700),
-                      breaks = seq(-700, 700, by = 100))+
   scale_x_datetime(name = "",
     limits = as.POSIXct(c("2025-05-01", "2025-09-25")), # Set x-axis limits
     date_labels = "%b",   # month only, no year
@@ -318,12 +331,14 @@ methane_over_time_4 <-
   labs(y = expression("Daily CH"[4]~"Flux (g ha"^-1~" day"^-1~")")) +
   theme_classic()+
   theme(axis.text.x = element_text(size=14, angle=0, hjust=0.5, vjust=1),
-        axis.text.y = element_text(size=14),
-        axis.title.y = element_text(size=16),
-        plot.title = element_text(size=20, face="bold"),
-        legend.text = element_text(size=14),
-        legend.title = element_text(size=16, face="bold"),
-        legend.key.size = unit(0.8, "cm"))+
+      axis.text.y = element_text(size=14),
+      axis.title.y = element_text(size=16),
+      plot.title = element_text(size=20, face="bold"),
+      legend.text = element_text(size=14),
+      legend.title = element_text(size=16, face="bold"),
+      legend.key.size = unit(0.8, "cm"),
+      legend.position = "bottom")+
+  guides(colour = guide_legend(nrow = 2))+
 # pre season sulfate    
   geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
              linetype = "dashed", color = "#5F8A8B") +
@@ -371,121 +386,9 @@ ggsave(methane_over_time_4, filename = "../Figures/methane_over_time_4trt.jpg", 
 ```
 
 
-# Cumulative CH4 Stats
-
-```{r}
-# Remove LD-MS from the seasonal-emissions dataframe
-flux_2025_rice_seasonal_emissions <- flux_2025_rice_seasonal_emissions %>%
-  filter(Treatment != "LD-MS") %>%
-  droplevels()
-
-model_4trt <- lm(total_CH4_emissions_kg_ha ~ Sulfate*Drain, data = flux_2025_rice_seasonal_emissions)
-anova(model_4trt)
-pls205_diagnostics(model_4trt)
-
-Treatment_means_4trt <- emmeans(model_4trt, spec = 'Drain', by = "Sulfate")
-Treatment_effects_4trt <- contrast(Treatment_means_4trt, method = "pairwise", adjust = "tukey")
-summary(Treatment_effects_4trt)
-cld(Treatment_means_4trt, adjust = "tukey", Letters = letters)
-
-cld_siddak <- cld(emmeans(Treatment_means_4trt, ~ Drain + Sulfate),adjust = "Sidak")
-cld_siddak
-```
 
 
 
-## Log transformation
-
-```{r}
-model <- lm(log(total_CH4_emissions_kg_ha)~Treatment, data=flux_2025_rice_seasonal_emissions)
-anova(model)
-
-pls205_diagnostics(model)
-
-Treatment_means = emmeans(model,spec = 'Treatment')
-Treatment_effects = contrast(Treatment_means, 
-         method = "pairwise",
-         adjust = "tukey")
-summary(Treatment_effects)
-cld(Treatment_means)
-
-emmeans(model, ~ Treatment)
-
-
-ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Blk)) + geom_point()
-```
-
-
-```{r}
-model <- lm(total_CH4_emissions_kg_ha~Treatment, data=flux_2025_rice_seasonal_emissions)
-anova(model)
-
-pls205_diagnostics(model)
-
-Treatment_means = emmeans(model,spec = 'Treatment')
-Treatment_effects = contrast(Treatment_means, 
-         method = "pairwise",
-         adjust = "tukey")
-summary(Treatment_effects)
-cld(Treatment_means)
-
-emmeans(model, ~ Treatment)
-
-
-ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_point()
-
-```
-
-# Anlyses for sulfate:drain interaction - very important 
-
-```{r}
-model <- lm(total_CH4_emissions_kg_ha~Drain*Sulfate, data=flux_2025_rice_seasonal_emissions)
-anova(model)
-
-Treatment_means = emmeans(model,spec = 'Drain', by = "Sulfate")
-Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
-summary(Treatment_effects)
-cld(Treatment_means)
-
-emmeans(model, ~ Drain + Sulfate)
-cld_siddak <- cld(emmeans(model, ~ Drain + Sulfate),adjust = "Sidak")
-cld_siddak
-# if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
-
-ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_boxplot()
-
-```
-# Try without CF-PP
-
-```{r}
-model <- lm(log(total_CH4_emissions_kg_ha)~Sulfate*Drain, data=flux_2025_rice_seasonal_emissions%>%filter(Treatment !="LD-MS"))#%>%filter(Treatment !="CF-PP"))
-
-pls205_diagnostics(model)
-            
-anova(model)
-
-
-
-Treatment_means = emmeans(model,spec = 'Sulfate', by ='Drain')
-Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
-summary(Treatment_effects)
-cld(Treatment_means)
-
-
-```
-# Over time
-
-```{r}
-model <- lm(CH4_Flux~Treatment*as.factor(Date), data=flux_2025)
-anova(model)
-
-pls205_diagnostics(model)
-
-Treatment_means = emmeans(model,spec = 'Treatment', by = 'Date')
-Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
-summary(Treatment_effects)
-cld(Treatment_means)
-```
 # Archival code
 
 ## All treatments
@@ -647,3 +550,98 @@ methane_over_time_soil_dates
 
 ggsave(methane_over_time_soil_dates, filename = "../Figures/methane_over_time_soil_dates.jpg", height = 25, width = 30, units = "cm", dpi=400)
 ```
+
+
+## Log transformation
+
+```{r}
+model <- lm(log(total_CH4_emissions_kg_ha)~Treatment, data=flux_2025_rice_seasonal_emissions)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, 
+         method = "pairwise",
+         adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+emmeans(model, ~ Treatment)
+
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Blk)) + geom_point()
+```
+
+
+```{r}
+model <- lm(total_CH4_emissions_kg_ha~Treatment, data=flux_2025_rice_seasonal_emissions)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, 
+         method = "pairwise",
+         adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+emmeans(model, ~ Treatment)
+
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_point()
+
+```
+
+# Anlyses for sulfate:drain interaction - very important 
+
+```{r}
+model <- lm(total_CH4_emissions_kg_ha~Drain*Sulfate, data=flux_2025_rice_seasonal_emissions)
+anova(model)
+
+Treatment_means = emmeans(model,spec = 'Drain', by = "Sulfate")
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+emmeans(model, ~ Drain + Sulfate)
+cld_siddak <- cld(emmeans(model, ~ Drain + Sulfate),adjust = "Sidak")
+cld_siddak
+# if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_CH4_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_boxplot()
+
+```
+# Try without CF-PP
+
+```{r}
+model <- lm(log(total_CH4_emissions_kg_ha)~Sulfate*Drain, data=flux_2025_rice_seasonal_emissions%>%filter(Treatment !="LD-MS"))#%>%filter(Treatment !="CF-PP"))
+
+pls205_diagnostics(model)
+            
+anova(model)
+
+
+
+Treatment_means = emmeans(model,spec = 'Sulfate', by ='Drain')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+
+```
+# Over time
+
+```{r}
+model <- lm(CH4_Flux~Treatment*as.factor(Date), data=flux_2025)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment', by = 'Date')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+```
+

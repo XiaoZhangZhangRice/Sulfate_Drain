@@ -128,7 +128,7 @@ ggplot(moisture_summary,
   geom_text(aes(x = as.POSIXct("2025-06-21 12:00:00", tz = "UTC"),
                 y = 0.3,
                 label = "Drain start"),
-            angle = 90, hjust = 0.5, vjust = -0.5, color = "black", size = 7) +
+            angle = 90, hjust = 0.5, vjust = -0.5, color = "black", size = 5) +
 
   # Drain end (nudged a few hours right of the line so the label sits
   # clearly on the right side rather than centered on it)
@@ -137,7 +137,7 @@ ggplot(moisture_summary,
   geom_text(aes(x = as.POSIXct("2025-07-02 17:00:00", tz = "UTC") + 60*60*8,
                 y = 0.3,
                 label = "Drain end"),
-            angle = 90, hjust = 0.5, vjust = -0.5, color = "black", size = 7) +
+            angle = 90, hjust = 0.5, vjust = -0.5, color = "black", size = 5) +
 
   scale_x_datetime(
     date_breaks = "1 day",
@@ -157,11 +157,11 @@ ggplot(moisture_summary,
 
   theme_classic() +
   theme(
-    plot.title = element_text(size = 20, face = "bold"),
+    plot.title = element_text(size=20, face="bold", hjust = 0.5),
     axis.title.x = element_text(size = 16),
-    axis.title.y = element_text(size = 18),
+    axis.title.y = element_text(size = 16),
     axis.text.x = element_text(size = 14, angle = 50, hjust = 1.2, vjust = 1.2),
-    axis.text.y = element_text(size = 16)
+    axis.text.y = element_text(size = 14)
   )
 
 Moisture_graph
