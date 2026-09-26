@@ -350,3 +350,266 @@ nitrous_over_time_4
 
 ggsave(nitrous_over_time_4, filename = "../Figures/nitrous_over_time_4trt.jpg", height = 25, width = 30, units = "cm", dpi=400)
 ```
+
+
+# Initial stats
+
+
+## Log transformation
+
+```{r}
+model <- lm(log(total_N2O_emissions_kg_ha)~Treatment, data=flux_2025_rice_seasonal_emissions)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, 
+         method = "pairwise",
+         adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+emmeans(model, ~ Treatment)
+
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_N2O_emissions_kg_ha, x=Treatment, color = Blk)) + geom_point()
+```
+
+
+```{r}
+model <- lm(total_N2O_emissions_kg_ha~Treatment, data=flux_2025_rice_seasonal_emissions)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment')
+Treatment_effects = contrast(Treatment_means, 
+         method = "pairwise",
+         adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+emmeans(model, ~ Treatment)
+
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_N2O_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_point()
+
+```
+
+# Anlyses for sulfate:drain interaction - very important 
+
+```{r}
+model <- lmer(total_N2O_emissions_kg_ha~Drain*Sulfate+(1|Blk), data=flux_2025_rice_seasonal_emissions)
+anova(model)
+
+Treatment_means = emmeans(model,spec = 'Drain', by = "Sulfate")
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+emmeans(model, ~ Drain + Sulfate)
+cld_siddak <- cld(emmeans(model, ~ Drain + Sulfate),adjust = "Sidak")
+
+# if we look at the summary output, sulfate = 350 has CF as not estimated. This is because the experiment is not a full 2x3 factorial design we probably have to play around with the linear model to account for that. 
+
+ggplot(flux_2025_rice_seasonal_emissions, aes(y=total_N2O_emissions_kg_ha, x=Treatment, color = Treatment)) + geom_boxplot()
+
+```
+# Try without CF-PP
+
+```{r}
+model <- lm(log(total_N2O_emissions_kg_ha)~Sulfate*Drain, data=flux_2025_rice_seasonal_emissions%>%filter(Treatment !="LD-MS"))#%>%filter(Treatment !="CF-PP"))
+
+pls205_diagnostics(model)
+            
+anova(model)
+
+
+
+Treatment_means = emmeans(model,spec = 'Sulfate', by ='Drain')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+
+
+```
+# Over time
+
+```{r}
+model <- lm(N2O_flux_corrected~Treatment*as.factor(Date), data=flux_2025)
+anova(model)
+
+pls205_diagnostics(model)
+
+Treatment_means = emmeans(model,spec = 'Treatment', by = 'Date')
+Treatment_effects = contrast(Treatment_means, method = 'pairwise', adjust = "Tukey")
+summary(Treatment_effects)
+cld(Treatment_means)
+```
+
+## All treatments
+
+```{r}
+
+nitrous_all_graphing <- flux_2025 %>%
+  group_by(Treatment, Date) %>%
+  mutate(N2O_flux_corrected_se = sd(N2O_flux_corrected)/sqrt(3)) %>%
+  summarise(N2O_flux_corrected = mean(N2O_flux_corrected),
+  N2O_flux_corrected_se = mean(N2O_flux_corrected_se))
+
+nitrous_over_time <- 
+  ggplot(nitrous_all_graphing, aes(x = Date, y = N2O_flux_corrected,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=N2O_flux_corrected-N2O_flux_corrected_se, ymax=N2O_flux_corrected+N2O_flux_corrected_se), size=0.5)+
+  ggtitle("Methane over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-11")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "red", size =4) +
+
+# mid season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Mid-season sulfate"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "red", size =4)   +
+
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
+
+# Planting date
+  geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
+             linetype = "dashed", color = "darkgreen") +
+  geom_text(aes(x = as.POSIXct("2025-05-10"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Planting"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "darkgreen", size =4)   
+  
+  
+nitrous_over_time
+
+
+ggsave(nitrous_over_time, filename = "../Figures/nitrous_over_time.jpg", height = 25, width = 30, units = "cm", dpi=400)
+```
+
+## Graph with soil sampling dates
+
+```{r}
+nitrous_over_time_soil_dates <- 
+  ggplot(nitrous_all_graphing, aes(x = Date, y = N2O_flux_corrected,  colour =  Treatment))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=N2O_flux_corrected-N2O_flux_corrected_se, ymax=N2O_flux_corrected+N2O_flux_corrected_se), size=0.5)+
+  ggtitle("Methane over time")+
+  scale_x_datetime(name = "",
+    limits = as.POSIXct(c("2025-05-01", "2025-08-30")), # Set x-axis limits
+    date_labels = "%b %Y",
+    date_breaks = "1 month")+
+# pre season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-05-01"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Pre-season sulfate"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "red", size =4) +
+
+# mid season sulfate    
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "red") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Mid-season sulfate"),
+            angle = 90, vjust = 1.4, hjust = 0, color = "red", size =4)   +
+
+# Initial Flood    
+  geom_vline(xintercept = as.POSIXct(c("2025-05-07")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-05-07"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Initial flood"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4)    +
+  
+# Begin mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-06-21")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-06-21"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Drain start"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
+  
+# Reflood after mid season drain     
+  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+             linetype = "dashed", color = "blue") +
+  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Drain end"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "blue", size =4) +
+
+# Planting date
+  geom_vline(xintercept = as.POSIXct(c("2025-05-10")), 
+             linetype = "dashed", color = "darkgreen") +
+  geom_text(aes(x = as.POSIXct("2025-05-10"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Planting"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "darkgreen", size =4) +
+
+# Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-06-17")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-06-17"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Pre Drain soils"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =4)   +
+
+  
+  # Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-07-14")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-07-14"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Post Reflood soils"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =4) +
+ 
+   # Soil sampling dates
+  geom_vline(xintercept = as.POSIXct(c("2025-08-19")), 
+             linetype = "dashed", color = "brown") +
+  geom_text(aes(x = as.POSIXct("2025-08-19"), 
+                y = mean(N2O_flux_corrected, na.rm = TRUE) * 1.05,
+                label = "Late soils"),
+            angle = 90, vjust = -0.5, hjust = 0, color = "brown", size =4) 
+  
+nitrous_over_time_soil_dates
+
+ggsave(nitrous_over_time_soil_dates, filename = "../Figures/nitrous_over_time_soil_dates.jpg", height = 25, width = 30, units = "cm", dpi=400)
+```

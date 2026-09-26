@@ -50,7 +50,7 @@ library(writexl)
 # Load data
 
 ```{r}
-redox <- read_excel("../Data/redox_data.xlsx", sheet = 1)
+redox <- read_excel("../Data/Redox/redox_data.xlsx", sheet = 1)
 
 # Filter data
 # Remove 2024 data - from another study
@@ -116,10 +116,10 @@ redox_over_time_4 <-
   geom_point()+
   geom_line()+
   geom_errorbar(aes(ymin=reading_1_mV-reading_1_mV_se, ymax=reading_1_mV+reading_1_mV_se), size=0.5)+
-  ggtitle("(d) Redox potential")+
+  ggtitle("(c) Redox potential")+
   scale_x_datetime(name = "",
-    limits = as.POSIXct(c("2025-05-01", "2025-09-11")), # Set x-axis limits
-    date_labels = "%b %Y",
+    limits = as.POSIXct(c("2025-05-01", "2025-09-25")), # Set x-axis limits
+    date_labels = "%b",   # month only, no year
     date_breaks = "1 month")+
   scale_color_manual(
   values = c(
@@ -134,10 +134,17 @@ redox_over_time_4 <-
                                 expression("Mid-season drain and sulfate (MD-S)")
                                 )
                      )+
-  theme(legend.title = element_blank(),
-        axis.text.x = element_text(size=20,angle=50, hjust=1.2, vjust=1.2))+
   labs(y = expression("Redox potential (mV)")) +
   theme_classic()+
+  theme(axis.text.x = element_text(size=14, angle=0, hjust=0.5, vjust=1),
+      axis.text.y = element_text(size=14),
+      axis.title.y = element_text(size=16),
+      plot.title = element_text(size=20, face="bold", hjust=0.5),
+      legend.text = element_text(size=14),
+      legend.title = element_text(size=16, face="bold"),
+      legend.key.size = unit(0.8, "cm"),
+      legend.position = "bottom")+
+  guides(colour = guide_legend(nrow = 2))+
 # pre season sulfate    
   geom_vline(xintercept = as.POSIXct(c("2025-05-01")), 
              linetype = "dashed", color = "#5F8A8B") +
@@ -162,9 +169,9 @@ redox_over_time_4 <-
             angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
   
 # Reflood after mid season drain     
-  geom_vline(xintercept = as.POSIXct(c("2025-07-01")), 
+  geom_vline(xintercept = as.POSIXct(c("2025-07-02")), 
              linetype = "dashed", color = "#5F8A8B") +
-  geom_text(aes(x = as.POSIXct("2025-07-01"), 
+  geom_text(aes(x = as.POSIXct("2025-07-02"), 
                 y = mean(reading_1_mV, na.rm = TRUE) -400,
                 label = "Drain end"),
             angle = 90, vjust = -0.5, hjust = 0, color = "#5F8A8B", size =5) +
@@ -183,22 +190,5 @@ redox_over_time_4
 ggsave(redox_over_time_4, filename = "../Figures/redox_over_time_4trt.jpg", height = 25, width = 30, units = "cm", dpi=400)
 ```
 
-```{r}
-scale_color_manual(
-  values = c(
-    "CF"   = "#2F6165",  # darker teal
-    "CF-S" = "#6FA3A5",  # medium teal
-    "MD"   = "#8C5F20",  # darker golden brown
-    "MD-S" = "#C89C5C"   # medium gold
-  )
-  
-  scale_color_manual(
-  values = c(
-    "CF"   = "#3D6F73",
-    "CF-S" = "#86B7B8",
-    "MD"   = "#A16E2A",
-    "MD-S" = "#D9B67A"
-  )
-)
-```
+
 

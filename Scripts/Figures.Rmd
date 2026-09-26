@@ -41,26 +41,24 @@ library(readxl)
 library(openxlsx)
 library(ggrepel)
 library(magick)
-
 library(patchwork)
 ```
 
 # Figure 2
 
+```{r}
+figure_2 <- methane_over_time_4 / sulfate_over_time_4trt / redox_over_time_4 +
+  plot_layout(axis_titles = "collect")
+
+ggsave(figure_2, filename = "../Figures/Figure_2.jpg", height = 45, width = 25, units = "cm", dpi = 400)
+```
+
 # Figure 3
 
 ```{r}
-nitrous_img  <- image_read("C:/Users/zhang/Documents/GitHub/Sulfate_Drain/Figures/nitrous_over_time_4trt.jpg")
-moisture_img <- image_read("C:/Users/zhang/Documents/GitHub/Sulfate_Drain/Figures/Moisture_graph.jpg")
 
-# stack vertically, matching widths
-figure_3 <- image_append(
-  c(image_resize(nitrous_img, "3000x"),
-    image_resize(moisture_img, "3000x")),
-  stack = TRUE
-)
+figure_3 <- nitrous_over_time_4 / Moisture_graph 
 
-image_write(figure_3, path = "C:/Users/zhang/Documents/GitHub/Sulfate_Drain/Figures/Figure_3.jpg", quality = 100)
+ggsave(figure_3, filename = "../Figures/Figure_3.jpg", height = 30, width = 25, units = "cm", dpi = 400)
 ```
-
 

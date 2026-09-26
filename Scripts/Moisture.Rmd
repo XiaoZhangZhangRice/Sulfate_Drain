@@ -134,7 +134,7 @@ ggplot(moisture_summary,
   # clearly on the right side rather than centered on it)
   geom_vline(xintercept = as.POSIXct("2025-07-02 12:00:00", tz = "UTC"),
              linetype = "dashed", color = "black") +
-  geom_text(aes(x = as.POSIXct("2025-07-02 17:00:00", tz = "UTC") + 60*60*8,
+  geom_text(aes(x = as.POSIXct("2025-07-02 16:00:00", tz = "UTC") + 60*60*8,
                 y = 0.3,
                 label = "Drain end"),
             angle = 90, hjust = 0.5, vjust = -0.5, color = "black", size = 5) +
